@@ -30,7 +30,8 @@ class HomePage extends StatelessWidget {
                 icon: const Icon(Icons.chevron_left),
                 tooltip: 'Mes anterior',
                 onPressed: () {
-                  final prev = DateTime(state.month.year, state.month.month - 1, 1);
+                  final prev =
+                      DateTime(state.month.year, state.month.month - 1, 1);
                   context.read<ExpensesBloc>().add(ExpensesMonthChanged(prev));
                 },
               ),
@@ -39,7 +40,8 @@ class HomePage extends StatelessWidget {
                 icon: const Icon(Icons.chevron_right),
                 tooltip: 'Mes siguiente',
                 onPressed: () {
-                  final next = DateTime(state.month.year, state.month.month + 1, 1);
+                  final next =
+                      DateTime(state.month.year, state.month.month + 1, 1);
                   context.read<ExpensesBloc>().add(ExpensesMonthChanged(next));
                 },
               ),
@@ -47,123 +49,193 @@ class HomePage extends StatelessWidget {
           ),
           floatingActionButton: FloatingActionButton.extended(
             onPressed: () async {
+              final bloc = context.read<ExpensesBloc>();
+
               final result = await showModalBottomSheet<AddExpenseResult>(
                 context: context,
                 isScrollControlled: true,
                 showDragHandle: true,
                 builder: (_) => const AddExpenseSheet(),
               );
+
               if (result != null) {
-                context.read<ExpensesBloc>().add(ExpenseAdded(result.toExpense()));
+                bloc.add(ExpenseAdded(result.toExpense()));
               }
             },
             icon: const Icon(Icons.add),
             label: const Text('Registrar gasto'),
           ),
-          body: state.loading
-              ? const Center(child: CircularProgressIndicator())
-              : RefreshIndicator(
-                  onRefresh: () async {
-                    context.read<ExpensesBloc>().add(const ExpensesStarted());
-                  },
-                  child: ListView(
-                    padding: const EdgeInsets.all(16),
-                    children: [
-                      Card(
-                        elevation: 1,
-                        shape: RoundedRectangleBorder(
-                          borderRadius: BorderRadius.circular(12),
-                        ),
-                        child: Padding(
-                          padding: const EdgeInsets.all(16),
-                          child: Column(
-                            crossAxisAlignment: CrossAxisAlignment.start,
-                            children: [
-                              Text(
-                                'Total del mes',
-                                style: Theme.of(context).textTheme.labelMedium,
-                              ),
-                              const SizedBox(height: 8),
-                              Text(
-                                formatMoney(state.total),
-                                style: Theme.of(context)
-                                    .textTheme
-                                    .headlineMedium
-                                    ?.copyWith(fontWeight: FontWeight.bold),
-                              ),
-                              const SizedBox(height: 16),
-                              Text(
-                                'Top categorías',
-                                style: Theme.of(context).textTheme.labelMedium,
-                              ),
-                              const SizedBox(height: 8),
-                              entries.isEmpty
-                                  ? const Text('Aún no hay gastos registrados.')
-                                  : Column(
-                                      children: entries.take(3).map((e) {
-                                        return ListTile(
-                                          dense: true,
-                                          contentPadding: EdgeInsets.zero,
-                                          title: Text(e.key),
-                                          trailing: Text(formatMoney(e.value)),
-                                        );
-                                      }).toList(),
+          body: SafeArea(
+            child: state.loading
+                ? const Center(child: CircularProgressIndicator())
+                : RefreshIndicator(
+                    onRefresh: () async {
+                      context.read<ExpensesBloc>().add(const ExpensesStarted());
+                    },
+                    child: ListView(
+                      padding: const EdgeInsets.all(16),
+                      children: [
+                        Card(
+                          child: Padding(
+                            padding: const EdgeInsets.all(20),
+                            child: Column(
+                              crossAxisAlignment: CrossAxisAlignment.start,
+                              children: [
+                                Row(
+                                  mainAxisAlignment:
+                                      MainAxisAlignment.spaceBetween,
+                                  children: [
+                                    Text(
+                                      'Total del mes',
+                                      style: Theme.of(context)
+                                          .textTheme
+                                          .labelMedium,
                                     ),
-                            ],
+                                    Chip(
+                                      avatar: const Icon(Icons.trending_up),
+                                      label: Text(DateFormat('LLLL')
+                                          .format(state.month)),
+                                    ),
+                                  ],
+                                ),
+                                const SizedBox(height: 10),
+                                Text(
+                                  formatMoney(state.total),
+                                  style: Theme.of(context)
+                                      .textTheme
+                                      .headlineMedium
+                                      ?.copyWith(fontWeight: FontWeight.bold),
+                                ),
+                                const SizedBox(height: 16),
+                                Text(
+                                  'Top categorías',
+                                  style:
+                                      Theme.of(context).textTheme.labelMedium,
+                                ),
+                                const SizedBox(height: 8),
+                                entries.isEmpty
+                                    ? const Text(
+                                        'Aún no hay gastos registrados.')
+                                    : Wrap(
+                                        spacing: 8,
+                                        runSpacing: 8,
+                                        children: entries.take(4).map((e) {
+                                          return Chip(
+                                            label: Text(
+                                                '${e.key} • ${formatMoney(e.value)}'),
+                                          );
+                                        }).toList(),
+                                      ),
+                              ],
+                            ),
                           ),
                         ),
-                      ),
-                      const SizedBox(height: 24),
-                      Text(
-                        'Historial',
-                        style: Theme.of(context)
-                            .textTheme
-                            .titleMedium
-                            ?.copyWith(fontWeight: FontWeight.w600),
-                      ),
-                      const SizedBox(height: 8),
-                      state.expenses.isEmpty
-                          ? Card(
-                              elevation: 0,
-                              child: Padding(
-                                padding: const EdgeInsets.all(16),
-                                child: Text(
-                                  'Registra tu primer gasto con el botón “Registrar gasto”.',
-                                  style: Theme.of(context).textTheme.bodyMedium,
-                                ),
-                              ),
-                            )
-                          : Column(
-                              children: state.expenses.map((e) {
-                                final dateLabel = DateFormat('dd/MM').format(e.date);
-                                final avatarColor = Theme.of(context).colorScheme.primaryContainer;
-                                final avatarTextColor = Theme.of(context).colorScheme.onPrimaryContainer;
-                                return Card(
-                                  elevation: 0,
-                                  margin: const EdgeInsets.symmetric(vertical: 4),
-                                  shape: RoundedRectangleBorder(
-                                    borderRadius: BorderRadius.circular(12),
+                        const SizedBox(height: 24),
+                        Text(
+                          'Historial',
+                          style: Theme.of(context)
+                              .textTheme
+                              .titleMedium
+                              ?.copyWith(fontWeight: FontWeight.w600),
+                        ),
+                        const SizedBox(height: 8),
+                        state.expenses.isEmpty
+                            ? Card(
+                                elevation: 0,
+                                child: Padding(
+                                  padding: const EdgeInsets.all(16),
+                                  child: Text(
+                                    'Registra tu primer gasto con el botón “Registrar gasto”.',
+                                    style:
+                                        Theme.of(context).textTheme.bodyMedium,
                                   ),
-                                  child: ListTile(
-                                    leading: CircleAvatar(
-                                      backgroundColor: avatarColor,
-                                      child: Text(
-                                        dateLabel,
-                                        style: TextStyle(color: avatarTextColor, fontSize: 12),
+                                ),
+                              )
+                            : Column(
+                                children: state.expenses.map((e) {
+                                  final dateLabel =
+                                      DateFormat('dd/MM').format(e.date);
+                                  final avatarColor = Theme.of(context)
+                                      .colorScheme
+                                      .primaryContainer;
+                                  final avatarTextColor = Theme.of(context)
+                                      .colorScheme
+                                      .onPrimaryContainer;
+                                  final subtitle =
+                                      e.note?.trim().isNotEmpty == true
+                                          ? e.note!
+                                          : (e.paymentMethod ?? 'Sin nota');
+
+                                  return Card(
+                                    elevation: 0,
+                                    margin:
+                                        const EdgeInsets.symmetric(vertical: 6),
+                                    shape: RoundedRectangleBorder(
+                                      borderRadius: BorderRadius.circular(12),
+                                    ),
+                                    child: ListTile(
+                                      leading: CircleAvatar(
+                                        backgroundColor: avatarColor,
+                                        child: Text(
+                                          dateLabel,
+                                          style: TextStyle(
+                                              color: avatarTextColor,
+                                              fontSize: 12),
+                                        ),
+                                      ),
+                                      title: Text(e.category),
+                                      subtitle: Column(
+                                        crossAxisAlignment:
+                                            CrossAxisAlignment.start,
+                                        children: [
+                                          Text(subtitle),
+                                          const SizedBox(height: 4),
+                                          Text(
+                                            DateFormat('EEE d', 'es')
+                                                .format(e.date),
+                                            style: Theme.of(context)
+                                                .textTheme
+                                                .labelSmall
+                                                ?.copyWith(
+                                                    color: Theme.of(context)
+                                                        .hintColor),
+                                          ),
+                                        ],
+                                      ),
+                                      trailing: Column(
+                                        mainAxisAlignment:
+                                            MainAxisAlignment.center,
+                                        crossAxisAlignment:
+                                            CrossAxisAlignment.end,
+                                        children: [
+                                          Text(
+                                            formatMoney(e.amount,
+                                                currency: e.currency),
+                                            style: Theme.of(context)
+                                                .textTheme
+                                                .titleMedium
+                                                ?.copyWith(
+                                                    fontWeight:
+                                                        FontWeight.bold),
+                                          ),
+                                          if (e.paymentMethod != null)
+                                            Text(
+                                              e.paymentMethod!,
+                                              style: Theme.of(context)
+                                                  .textTheme
+                                                  .labelSmall,
+                                            ),
+                                        ],
                                       ),
                                     ),
-                                    title: Text('${e.category} • ${formatMoney(e.amount, currency: e.currency)}'),
-                                    subtitle: e.note?.trim().isNotEmpty == true
-                                        ? Text(e.note!)
-                                        : const Text('Sin nota'),
-                                  ),
-                                );
-                              }).toList(),
-                            ),
-                      const SizedBox(height: 80),
-                    ],
+                                  );
+                                }).toList(),
+                              ),
+                        const SizedBox(height: 80),
+                      ],
+                    ),
                   ),
-                ),
+          ),
         );
       },
     );

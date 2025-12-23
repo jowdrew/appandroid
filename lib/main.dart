@@ -1,5 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
+import 'package:intl/date_symbol_data_local.dart';
+import 'package:intl/intl.dart';
 
 import 'app.dart';
 import 'features/expenses/data/repositories/expense_repository.dart';
@@ -14,6 +16,9 @@ import 'features/expenses/presentation/bloc/expenses_event.dart';
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
 
+  await initializeDateFormatting('es');
+  Intl.defaultLocale = 'es_PE';
+
   // Initialize the repository which creates/opens the local database.
   final expenseRepository = ExpenseRepository();
   await expenseRepository.init();
@@ -26,8 +31,8 @@ void main() async {
       child: MultiBlocProvider(
         providers: [
           BlocProvider(
-            create: (context) => ExpensesBloc(expenseRepository)
-              ..add(const ExpensesStarted()),
+            create: (context) =>
+                ExpensesBloc(expenseRepository)..add(const ExpensesStarted()),
           ),
         ],
         child: const MyApp(),

@@ -81,11 +81,12 @@ class _AddExpenseSheetState extends State<AddExpenseSheet> {
           ),
           const SizedBox(height: 12),
           DropdownButtonFormField<String>(
-            value: _selectedCategory,
+            initialValue: _selectedCategory,
             items: _categories
                 .map((c) => DropdownMenuItem(value: c, child: Text(c)))
                 .toList(),
-            onChanged: (v) => setState(() => _selectedCategory = v ?? _selectedCategory),
+            onChanged: (v) =>
+                setState(() => _selectedCategory = v ?? _selectedCategory),
             decoration: const InputDecoration(
               labelText: 'Categoría',
               border: OutlineInputBorder(),
@@ -121,20 +122,27 @@ class _AddExpenseSheetState extends State<AddExpenseSheet> {
                 ),
               ),
               const SizedBox(width: 12),
-              DropdownButton<String>(
-                value: _selectedCurrency,
-                items: const [
-                  DropdownMenuItem(value: 'PEN', child: Text('PEN')),
-                  DropdownMenuItem(value: 'USD', child: Text('USD')),
-                ],
-                onChanged: (v) => setState(() => _selectedCurrency = v ?? _selectedCurrency),
+              SizedBox(
+                width: 140,
+                child: DropdownButtonFormField<String>(
+                  initialValue: _selectedCurrency,
+                  items: const [
+                    DropdownMenuItem(value: 'PEN', child: Text('PEN')),
+                    DropdownMenuItem(value: 'USD', child: Text('USD')),
+                  ],
+                  decoration: const InputDecoration(
+                    labelText: 'Moneda',
+                  ),
+                  onChanged: (v) => setState(
+                      () => _selectedCurrency = v ?? _selectedCurrency),
+                ),
               ),
             ],
           ),
           const SizedBox(height: 12),
           // Payment method selector (optional)
           DropdownButtonFormField<String>(
-            value: _selectedPaymentMethod,
+            initialValue: _selectedPaymentMethod,
             items: _paymentMethods
                 .map((m) => DropdownMenuItem(value: m, child: Text(m)))
                 .toList(),
