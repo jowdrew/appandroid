@@ -72,7 +72,8 @@ class Expense {
       note: map['note'] as String?,
       date: DateTime.fromMillisecondsSinceEpoch(map['date_ms'] as int),
       paymentMethod: map['payment_method'] as String?,
-      createdAt: DateTime.fromMillisecondsSinceEpoch(map['created_at_ms'] as int),
+      createdAt:
+          DateTime.fromMillisecondsSinceEpoch(map['created_at_ms'] as int),
     );
   }
 }

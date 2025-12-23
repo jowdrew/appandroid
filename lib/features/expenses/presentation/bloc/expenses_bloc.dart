@@ -1,6 +1,5 @@
 import 'package:flutter_bloc/flutter_bloc.dart';
 
-import '../../data/models/expense.dart';
 import '../../data/repositories/expense_repository.dart';
 import 'expenses_event.dart';
 import 'expenses_state.dart';
@@ -39,16 +38,19 @@ class ExpensesBloc extends Bloc<ExpensesEvent, ExpensesState> {
     ));
   }
 
-  Future<void> _onStarted(ExpensesStarted event, Emitter<ExpensesState> emit) async {
+  Future<void> _onStarted(
+      ExpensesStarted event, Emitter<ExpensesState> emit) async {
     await _reload(state.month, emit);
   }
 
-  Future<void> _onMonthChanged(ExpensesMonthChanged event, Emitter<ExpensesState> emit) async {
+  Future<void> _onMonthChanged(
+      ExpensesMonthChanged event, Emitter<ExpensesState> emit) async {
     final targetMonth = DateTime(event.month.year, event.month.month, 1);
     await _reload(targetMonth, emit);
   }
 
-  Future<void> _onExpenseAdded(ExpenseAdded event, Emitter<ExpensesState> emit) async {
+  Future<void> _onExpenseAdded(
+      ExpenseAdded event, Emitter<ExpensesState> emit) async {
     await repository.addExpense(event.expense);
     await _reload(state.month, emit);
   }
