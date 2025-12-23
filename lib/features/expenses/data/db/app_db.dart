@@ -37,8 +37,10 @@ class AppDb {
           );
         ''');
 
-        await db.execute('CREATE INDEX idx_expenses_date ON expenses(date_ms);');
-        await db.execute('CREATE INDEX idx_expenses_category ON expenses(category);');
+        await db
+            .execute('CREATE INDEX idx_expenses_date ON expenses(date_ms);');
+        await db.execute(
+            'CREATE INDEX idx_expenses_category ON expenses(category);');
       },
     );
 
