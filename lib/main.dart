@@ -21,10 +21,7 @@ class ExpensesApp extends StatelessWidget {
       child: MaterialApp(
         title: 'Gastos',
         debugShowCheckedModeBanner: false,
-        theme: ThemeData(
-          colorScheme: ColorScheme.fromSeed(seedColor: Colors.deepPurple),
-          useMaterial3: true,
-        ),
+        theme: buildAppTheme(),
         locale: const Locale('es', 'PE'),
         supportedLocales: const [Locale('es', 'PE')],
         localizationsDelegates: const [
@@ -51,6 +48,7 @@ class _HomeShellState extends State<HomeShell> {
   @override
   Widget build(BuildContext context) {
     final store = ExpensesScope.of(context);
+
     return Scaffold(
       appBar: AppBar(
         title: Text(_currentIndex == 0 ? 'Dashboard mensual' : 'Historial'),
@@ -95,6 +93,7 @@ class _HomeShellState extends State<HomeShell> {
     await showModalBottomSheet<void>(
       context: context,
       isScrollControlled: true,
+      // Si tu Flutter es antiguo y te da error por esto, bórralo:
       showDragHandle: true,
       builder: (_) => const AddExpenseSheet(),
     );
@@ -108,35 +107,48 @@ class DashboardScreen extends StatelessWidget {
   Widget build(BuildContext context) {
     final store = ExpensesScope.of(context);
     final now = DateTime.now();
+
     final monthExpenses = store.expensesForMonth(now);
-    final previousMonthExpenses = store.expensesForMonth(
-      DateTime(now.year, now.month - 1, 1),
-    );
+    final previousMonthExpenses =
+        store.expensesForMonth(DateTime(now.year, now.month - 1, 1));
+
     final total = store.totalFor(monthExpenses);
     final previousTotal = store.totalFor(previousMonthExpenses);
     final diff = total - previousTotal;
+
     final percentChange = previousTotal == 0
         ? 0.0
-        : (diff / previousTotal * 100).clamp(-999, 999);
+        : (diff / previousTotal * 100).clamp(-999.0, 999.0).toDouble();
+
     final topCategories = store.topCategories(monthExpenses, count: 3);
 
     return ListView(
-      padding: const EdgeInsets.all(16),
+      padding: const EdgeInsets.fromLTRB(20, 16, 20, 24),
       children: [
+        Text(
+          DateFormat('MMMM yyyy', 'es_PE').format(now),
+          style: Theme.of(context).textTheme.titleSmall,
+        ),
+        const SizedBox(height: 6),
         _SummaryCard(
           total: total,
           previousTotal: previousTotal,
           percentChange: percentChange,
           diff: diff,
         ),
-        const SizedBox(height: 16),
-        Text('Top categorías', style: Theme.of(context).textTheme.titleMedium),
-        const SizedBox(height: 8),
+        const SizedBox(height: 20),
+        const _SectionHeader(
+          title: 'Top categorías',
+          subtitle: 'Lo más relevante de tu mes',
+        ),
+        const SizedBox(height: 12),
         _TopCategoriesList(categories: topCategories),
-        const SizedBox(height: 16),
-        Text('Distribución del mes',
-            style: Theme.of(context).textTheme.titleMedium),
-        const SizedBox(height: 8),
+        const SizedBox(height: 20),
+        const _SectionHeader(
+          title: 'Distribución del mes',
+          subtitle: 'Comparte tu gasto por categorías',
+        ),
+        const SizedBox(height: 12),
         _CategoryChart(data: topCategories),
       ],
     );
@@ -159,44 +171,74 @@ class _SummaryCard extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final currency = currencyFormatter();
+    final isPositive = diff >= 0;
+
     final comparisonLabel = previousTotal == 0
         ? 'Sin datos del mes anterior'
         : '${percentChange >= 0 ? '+' : ''}${percentChange.toStringAsFixed(1)}% vs mes anterior';
 
     return Card(
       elevation: 0,
-      color: Theme.of(context).colorScheme.primaryContainer,
+      color: Theme.of(context).colorScheme.surface,
       child: Padding(
-        padding: const EdgeInsets.all(16),
+        padding: const EdgeInsets.all(20),
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            Text('Total del mes',
-                style: Theme.of(context).textTheme.labelLarge),
-            const SizedBox(height: 8),
-            Text(
-              currency.format(total),
-              style: Theme.of(context).textTheme.headlineMedium?.copyWith(
-                    fontWeight: FontWeight.bold,
-                  ),
-            ),
-            const SizedBox(height: 8),
             Row(
+              mainAxisAlignment: MainAxisAlignment.spaceBetween,
               children: [
-                Icon(
-                  diff >= 0 ? Icons.trending_up : Icons.trending_down,
-                  color: diff >= 0
-                      ? Theme.of(context).colorScheme.primary
-                      : Theme.of(context).colorScheme.error,
+                Text(
+                  'Total del mes',
+                  style: Theme.of(context).textTheme.labelLarge,
                 ),
-                const SizedBox(width: 8),
-                Expanded(
+                Container(
+                  padding:
+                      const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+                  decoration: BoxDecoration(
+                    color: Theme.of(context).colorScheme.primaryContainer,
+                    borderRadius: BorderRadius.circular(999),
+                  ),
                   child: Text(
-                    comparisonLabel,
-                    style: Theme.of(context).textTheme.bodyMedium,
+                    'Gastos',
+                    style: Theme.of(context).textTheme.labelMedium,
                   ),
                 ),
               ],
+            ),
+            const SizedBox(height: 12),
+            Text(
+              currency.format(total),
+              style: Theme.of(context).textTheme.headlineMedium?.copyWith(
+                    fontWeight: FontWeight.w700,
+                  ),
+            ),
+            const SizedBox(height: 12),
+            Container(
+              padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+              decoration: BoxDecoration(
+                color: isPositive
+                    ? Theme.of(context).colorScheme.tertiaryContainer
+                    : Theme.of(context).colorScheme.errorContainer,
+                borderRadius: BorderRadius.circular(14),
+              ),
+              child: Row(
+                children: [
+                  Icon(
+                    isPositive ? Icons.trending_up : Icons.trending_down,
+                    color: isPositive
+                        ? Theme.of(context).colorScheme.tertiary
+                        : Theme.of(context).colorScheme.error,
+                  ),
+                  const SizedBox(width: 8),
+                  Expanded(
+                    child: Text(
+                      comparisonLabel,
+                      style: Theme.of(context).textTheme.bodyMedium,
+                    ),
+                  ),
+                ],
+              ),
             ),
           ],
         ),
@@ -216,13 +258,15 @@ class _TopCategoriesList extends StatelessWidget {
     if (categories.isEmpty) {
       return const Text('Aún no hay gastos en este mes.');
     }
+
     return Column(
       children: categories
           .map(
             (summary) => ListTile(
-              contentPadding: EdgeInsets.zero,
+              contentPadding:
+                  const EdgeInsets.symmetric(horizontal: 4, vertical: 6),
               leading: CircleAvatar(
-                backgroundColor: summary.category.color.withOpacity(0.15),
+                backgroundColor: summary.category.color.withOpacity(0.2),
                 child: Icon(summary.category.icon, color: summary.category.color),
               ),
               title: Text(summary.category.label),
@@ -247,11 +291,17 @@ class _CategoryChart extends StatelessWidget {
     if (data.isEmpty) {
       return const Text('Registra gastos para ver el gráfico.');
     }
-    final maxValue = data.map((item) => item.total).reduce((a, b) => a > b ? a : b);
+
+    final maxValue = data.fold<double>(
+      0,
+      (max, item) => item.total > max ? item.total : max,
+    );
+    final safeMax = maxValue <= 0 ? 1 : maxValue;
+
     return Card(
       elevation: 0,
       child: Padding(
-        padding: const EdgeInsets.all(16),
+        padding: const EdgeInsets.fromLTRB(16, 20, 16, 16),
         child: Row(
           crossAxisAlignment: CrossAxisAlignment.end,
           children: data
@@ -262,11 +312,11 @@ class _CategoryChart extends StatelessWidget {
                     children: [
                       AnimatedContainer(
                         duration: const Duration(milliseconds: 300),
-                        height: 80 * (summary.total / maxValue),
+                        height: 80 * (summary.total / safeMax),
                         margin: const EdgeInsets.symmetric(horizontal: 6),
                         decoration: BoxDecoration(
                           color: summary.category.color,
-                          borderRadius: BorderRadius.circular(12),
+                          borderRadius: BorderRadius.circular(16),
                         ),
                       ),
                       const SizedBox(height: 8),
@@ -282,6 +332,32 @@ class _CategoryChart extends StatelessWidget {
               .toList(),
         ),
       ),
+    );
+  }
+}
+
+class _SectionHeader extends StatelessWidget {
+  const _SectionHeader({required this.title, required this.subtitle});
+
+  final String title;
+  final String subtitle;
+
+  @override
+  Widget build(BuildContext context) {
+    return Row(
+      mainAxisAlignment: MainAxisAlignment.spaceBetween,
+      children: [
+        Expanded(
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Text(title, style: Theme.of(context).textTheme.titleMedium),
+              const SizedBox(height: 4),
+              Text(subtitle, style: Theme.of(context).textTheme.bodySmall),
+            ],
+          ),
+        ),
+      ],
     );
   }
 }
@@ -302,11 +378,13 @@ class _HistoryScreenState extends State<HistoryScreen> {
   Widget build(BuildContext context) {
     final store = ExpensesScope.of(context);
     final months = store.availableMonths();
+
     final filtered = store.filteredExpenses(
       month: _selectedMonth,
       category: _selectedCategory,
       query: _searchQuery,
     );
+
     final grouped = store.groupByDay(filtered);
     final currency = currencyFormatter();
 
@@ -369,8 +447,10 @@ class _HistoryScreenState extends State<HistoryScreen> {
                       leading: CircleAvatar(
                         backgroundColor:
                             expense.category.color.withOpacity(0.15),
-                        child: Icon(expense.category.icon,
-                            color: expense.category.color),
+                        child: Icon(
+                          expense.category.icon,
+                          color: expense.category.color,
+                        ),
                       ),
                       title: Text(expense.category.label),
                       subtitle: Text(
@@ -418,9 +498,7 @@ class _MonthFilter extends StatelessWidget {
           )
           .toList(),
       onChanged: (value) {
-        if (value != null) {
-          onChanged(value);
-        }
+        if (value != null) onChanged(value);
       },
     );
   }
@@ -512,8 +590,10 @@ class _AddExpenseSheetState extends State<AddExpenseSheet> {
             ),
           ),
           const SizedBox(height: 16),
-          Text('Categorías recientes',
-              style: Theme.of(context).textTheme.labelLarge),
+          Text(
+            'Categorías recientes',
+            style: Theme.of(context).textTheme.labelLarge,
+          ),
           const SizedBox(height: 8),
           Wrap(
             spacing: 8,
@@ -526,16 +606,17 @@ class _AddExpenseSheetState extends State<AddExpenseSheet> {
                         label: Text(category.label),
                         selected: _selectedCategory == category,
                         avatar: Icon(category.icon, size: 18),
-                        onSelected: (_) => setState(() {
-                          _selectedCategory = category;
-                        }),
+                        onSelected: (_) =>
+                            setState(() => _selectedCategory = category),
                       ),
                     )
                     .toList(),
           ),
           const SizedBox(height: 16),
-          Text('Todas las categorías',
-              style: Theme.of(context).textTheme.labelLarge),
+          Text(
+            'Todas las categorías',
+            style: Theme.of(context).textTheme.labelLarge,
+          ),
           const SizedBox(height: 8),
           Wrap(
             spacing: 8,
@@ -546,9 +627,8 @@ class _AddExpenseSheetState extends State<AddExpenseSheet> {
                     label: Text(category.label),
                     selected: _selectedCategory == category,
                     avatar: Icon(category.icon, size: 18),
-                    onSelected: (_) => setState(() {
-                      _selectedCategory = category;
-                    }),
+                    onSelected: (_) =>
+                        setState(() => _selectedCategory = category),
                   ),
                 )
                 .toList(),
@@ -682,6 +762,7 @@ class ExpensesStore extends ChangeNotifier {
   factory ExpensesStore.demo() {
     final categories = defaultCategories;
     final now = DateTime.now();
+
     final demo = <Expense>[
       Expense(
         id: '1',
@@ -770,13 +851,13 @@ class ExpensesStore extends ChangeNotifier {
         note: 'Almuerzo',
       ),
     ];
+
     return ExpensesStore(demo);
   }
 
   final List<Expense> _expenses;
 
   List<Expense> get expenses => List.unmodifiable(_expenses);
-
   List<ExpenseCategory> get categories => defaultCategories;
 
   void addExpense(Expense expense) {
@@ -796,25 +877,33 @@ class ExpensesStore extends ChangeNotifier {
 
   List<CategorySummary> topCategories(List<Expense> expenses, {int count = 3}) {
     final totals = <ExpenseCategory, double>{};
+
     for (final expense in expenses) {
-      totals.update(expense.category, (value) => value + expense.amount,
-          ifAbsent: () => expense.amount);
+      totals.update(
+        expense.category,
+        (value) => value + expense.amount,
+        ifAbsent: () => expense.amount,
+      );
     }
+
     final summaries = totals.entries
         .map((entry) => CategorySummary(entry.key, entry.value))
         .toList()
       ..sort((a, b) => b.total.compareTo(a.total));
+
     return summaries.take(count).toList();
   }
 
   List<DateTime> availableMonths() {
     final months = <DateTime>{};
+
     for (final expense in _expenses) {
       months.add(DateTime(expense.date.year, expense.date.month));
     }
+
     months.add(DateTime(DateTime.now().year, DateTime.now().month));
-    final list = months.toList()
-      ..sort((a, b) => b.compareTo(a));
+
+    final list = months.toList()..sort((a, b) => b.compareTo(a));
     return list;
   }
 
@@ -824,37 +913,43 @@ class ExpensesStore extends ChangeNotifier {
     String query = '',
   }) {
     final lower = query.trim().toLowerCase();
+
     return _expenses.where((expense) {
       final matchesMonth =
           expense.date.year == month.year && expense.date.month == month.month;
-      final matchesCategory =
-          category == null || expense.category == category;
+
+      final matchesCategory = category == null || expense.category == category;
+
       final matchesQuery = lower.isEmpty ||
           expense.category.label.toLowerCase().contains(lower) ||
           (expense.note?.toLowerCase().contains(lower) ?? false);
+
       return matchesMonth && matchesCategory && matchesQuery;
     }).toList();
   }
 
   Map<DateTime, List<Expense>> groupByDay(List<Expense> expenses) {
     final map = <DateTime, List<Expense>>{};
+
     for (final expense in expenses) {
       final day = DateTime(expense.date.year, expense.date.month, expense.date.day);
       map.putIfAbsent(day, () => []).add(expense);
     }
-    final entries = map.entries.toList()
-      ..sort((a, b) => b.key.compareTo(a.key));
+
+    final entries = map.entries.toList()..sort((a, b) => b.key.compareTo(a.key));
     return Map.fromEntries(entries);
   }
 
   List<ExpenseCategory> recentCategories({int count = 3}) {
     final seen = <String, ExpenseCategory>{};
+
     for (final expense in _expenses) {
       if (!seen.containsKey(expense.category.id)) {
         seen[expense.category.id] = expense.category;
       }
       if (seen.length >= count) break;
     }
+
     return seen.values.toList();
   }
 }
@@ -867,8 +962,7 @@ class ExpensesScope extends InheritedNotifier<ExpensesStore> {
   });
 
   static ExpensesStore of(BuildContext context) {
-    final scope =
-        context.dependOnInheritedWidgetOfExactType<ExpensesScope>();
+    final scope = context.dependOnInheritedWidgetOfExactType<ExpensesScope>();
     assert(scope != null, 'ExpensesScope not found in context');
     return scope!.notifier!;
   }
@@ -916,3 +1010,111 @@ final defaultCategories = <ExpenseCategory>[
 NumberFormat currencyFormatter() {
   return NumberFormat.simpleCurrency(locale: 'es_PE', name: 'PEN');
 }
+
+ThemeData buildAppTheme() {
+  const seedColor = Color(0xFF7D6CF2);
+  const background = Color(0xFFF6F5FB);
+  const surface = Colors.white;
+  const positive = Color(0xFF7FE7C4);
+  const negative = Color(0xFFFF8A8A);
+  const neutral = Color(0xFF8EC5FF);
+  const container = Color(0xFFEDE9FF);
+
+  final base = ColorScheme.fromSeed(
+    seedColor: seedColor,
+    brightness: Brightness.light,
+  );
+
+  final colorScheme = base.copyWith(
+    primary: seedColor,
+    secondary: neutral,
+    tertiary: positive,
+    error: negative,
+    surface: surface,
+    primaryContainer: container,
+  );
+
+  return ThemeData(
+    useMaterial3: true,
+    colorScheme: colorScheme,
+    scaffoldBackgroundColor: background,
+    fontFamily: 'Roboto',
+    appBarTheme: const AppBarTheme(
+      backgroundColor: background,
+      elevation: 0,
+      centerTitle: false,
+      titleTextStyle: TextStyle(
+        fontSize: 20,
+        fontWeight: FontWeight.w600,
+        color: Color(0xFF1F1D2B),
+      ),
+    ),
+    cardTheme: CardTheme(
+      color: surface,
+      elevation: 0,
+      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
+    ),
+    listTileTheme: const ListTileThemeData(
+      iconColor: Color(0xFF6D6A7C),
+    ),
+    chipTheme: ChipThemeData(
+      backgroundColor: container,
+      selectedColor: seedColor.withOpacity(0.15),
+      labelStyle: const TextStyle(fontWeight: FontWeight.w500),
+      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+    ),
+    inputDecorationTheme: InputDecorationTheme(
+      filled: true,
+      fillColor: surface,
+      contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
+      border: OutlineInputBorder(
+        borderRadius: BorderRadius.circular(16),
+        borderSide: BorderSide(color: colorScheme.outline.withOpacity(0.35)),
+      ),
+      enabledBorder: OutlineInputBorder(
+        borderRadius: BorderRadius.circular(16),
+        borderSide: BorderSide(color: colorScheme.outline.withOpacity(0.35)),
+      ),
+      focusedBorder: OutlineInputBorder(
+        borderRadius: BorderRadius.circular(16),
+        borderSide: BorderSide(color: colorScheme.primary, width: 1.5),
+      ),
+    ),
+    textTheme: const TextTheme(
+      headlineMedium: TextStyle(
+        fontSize: 34,
+        fontWeight: FontWeight.w700,
+        color: Color(0xFF1F1D2B),
+      ),
+      titleMedium: TextStyle(
+        fontSize: 18,
+        fontWeight: FontWeight.w600,
+        color: Color(0xFF1F1D2B),
+      ),
+      titleSmall: TextStyle(
+        fontSize: 14,
+        fontWeight: FontWeight.w600,
+        color: Color(0xFF1F1D2B),
+      ),
+      bodyMedium: TextStyle(
+        fontSize: 14,
+        color: Color(0xFF5D5A6F),
+      ),
+      bodySmall: TextStyle(
+        fontSize: 12,
+        color: Color(0xFF8C889B),
+      ),
+      labelLarge: TextStyle(
+        fontSize: 12,
+        fontWeight: FontWeight.w600,
+        color: Color(0xFF8C889B),
+      ),
+      labelMedium: TextStyle(
+        fontSize: 11,
+        fontWeight: FontWeight.w600,
+        color: Color(0xFF6D6A7C),
+      ),
+    ),
+  );
+}
+
