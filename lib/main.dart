@@ -51,7 +51,7 @@ class _HomeShellState extends State<HomeShell> {
 
     return Scaffold(
       appBar: AppBar(
-        title: Text(_currentIndex == 0 ? 'Dashboard mensual' : 'Historial'),
+        title: Text(_currentIndex == 0 ? 'Dashboard mensual' : 'Movimientos'),
       ),
       body: AnimatedBuilder(
         animation: store,
@@ -60,15 +60,15 @@ class _HomeShellState extends State<HomeShell> {
             index: _currentIndex,
             children: const [
               DashboardScreen(),
-              HistoryScreen(),
+              MovementsScreen(),
             ],
           );
         },
       ),
       floatingActionButton: FloatingActionButton.extended(
-        onPressed: () => _openAddExpense(context),
+        onPressed: () => _openAddMovement(context),
         icon: const Icon(Icons.add),
-        label: const Text('Agregar gasto'),
+        label: const Text('Agregar movimiento'),
       ),
       bottomNavigationBar: NavigationBar(
         selectedIndex: _currentIndex,
@@ -80,22 +80,20 @@ class _HomeShellState extends State<HomeShell> {
             label: 'Dashboard',
           ),
           NavigationDestination(
-            icon: Icon(Icons.receipt_long_outlined),
-            selectedIcon: Icon(Icons.receipt_long),
-            label: 'Historial',
+            icon: Icon(Icons.swap_horiz_outlined),
+            selectedIcon: Icon(Icons.swap_horiz),
+            label: 'Movimientos',
           ),
         ],
       ),
     );
   }
 
-  Future<void> _openAddExpense(BuildContext context) async {
+  Future<void> _openAddMovement(BuildContext context) async {
     await showModalBottomSheet<void>(
       context: context,
       isScrollControlled: true,
-      // Si tu Flutter es antiguo y te da error por esto, bórralo:
-      showDragHandle: true,
-      builder: (_) => const AddExpenseSheet(),
+      builder: (_) => const AddMovementSheet(),
     );
   }
 }
@@ -108,19 +106,27 @@ class DashboardScreen extends StatelessWidget {
     final store = ExpensesScope.of(context);
     final now = DateTime.now();
 
-    final monthExpenses = store.expensesForMonth(now);
-    final previousMonthExpenses =
-        store.expensesForMonth(DateTime(now.year, now.month - 1, 1));
+    final monthMovements = store.movementsForMonth(now);
+    final previousMonthMovements = store.movementsForMonth(
+      DateTime(now.year, now.month - 1, 1),
+    );
 
-    final total = store.totalFor(monthExpenses);
-    final previousTotal = store.totalFor(previousMonthExpenses);
-    final diff = total - previousTotal;
+    final incomeTotal = store.totalForType(monthMovements, MovementType.income);
+    final expenseTotal = store.totalForType(monthMovements, MovementType.expense);
+    final balance = incomeTotal - expenseTotal;
 
-    final percentChange = previousTotal == 0
+    final previousExpenseTotal =
+        store.totalForType(previousMonthMovements, MovementType.expense);
+    final diff = expenseTotal - previousExpenseTotal;
+
+    final percentChange = previousExpenseTotal == 0
         ? 0.0
-        : (diff / previousTotal * 100).clamp(-999.0, 999.0).toDouble();
+        : (diff / previousExpenseTotal * 100).clamp(-999, 999).toDouble();
 
-    final topCategories = store.topCategories(monthExpenses, count: 3);
+    final topExpenseCategories = store.topCategories(
+      monthMovements.where((m) => m.type == MovementType.expense),
+      count: 3,
+    );
 
     return ListView(
       padding: const EdgeInsets.fromLTRB(20, 16, 20, 24),
@@ -131,25 +137,27 @@ class DashboardScreen extends StatelessWidget {
         ),
         const SizedBox(height: 6),
         _SummaryCard(
-          total: total,
-          previousTotal: previousTotal,
+          incomeTotal: incomeTotal,
+          expenseTotal: expenseTotal,
+          balance: balance,
+          previousExpenseTotal: previousExpenseTotal,
           percentChange: percentChange,
           diff: diff,
         ),
         const SizedBox(height: 20),
         const _SectionHeader(
-          title: 'Top categorías',
+          title: 'Top categorías de gasto',
           subtitle: 'Lo más relevante de tu mes',
         ),
         const SizedBox(height: 12),
-        _TopCategoriesList(categories: topCategories),
+        _TopCategoriesList(categories: topExpenseCategories),
         const SizedBox(height: 20),
         const _SectionHeader(
           title: 'Distribución del mes',
           subtitle: 'Comparte tu gasto por categorías',
         ),
         const SizedBox(height: 12),
-        _CategoryChart(data: topCategories),
+        _CategoryChart(data: topExpenseCategories),
       ],
     );
   }
@@ -157,23 +165,28 @@ class DashboardScreen extends StatelessWidget {
 
 class _SummaryCard extends StatelessWidget {
   const _SummaryCard({
-    required this.total,
-    required this.previousTotal,
+    required this.incomeTotal,
+    required this.expenseTotal,
+    required this.balance,
+    required this.previousExpenseTotal,
     required this.percentChange,
     required this.diff,
   });
 
-  final double total;
-  final double previousTotal;
+  final double incomeTotal;
+  final double expenseTotal;
+  final double balance;
+  final double previousExpenseTotal;
   final double percentChange;
   final double diff;
 
   @override
   Widget build(BuildContext context) {
     final currency = currencyFormatter();
-    final isPositive = diff >= 0;
+    // Para gastos: si gastaste menos que el mes anterior => positivo
+    final isPositive = diff <= 0;
 
-    final comparisonLabel = previousTotal == 0
+    final comparisonLabel = previousExpenseTotal == 0
         ? 'Sin datos del mes anterior'
         : '${percentChange >= 0 ? '+' : ''}${percentChange.toStringAsFixed(1)}% vs mes anterior';
 
@@ -189,7 +202,7 @@ class _SummaryCard extends StatelessWidget {
               mainAxisAlignment: MainAxisAlignment.spaceBetween,
               children: [
                 Text(
-                  'Total del mes',
+                  'Resumen del mes',
                   style: Theme.of(context).textTheme.labelLarge,
                 ),
                 Container(
@@ -200,7 +213,7 @@ class _SummaryCard extends StatelessWidget {
                     borderRadius: BorderRadius.circular(999),
                   ),
                   child: Text(
-                    'Gastos',
+                    'Balance',
                     style: Theme.of(context).textTheme.labelMedium,
                   ),
                 ),
@@ -208,12 +221,39 @@ class _SummaryCard extends StatelessWidget {
             ),
             const SizedBox(height: 12),
             Text(
-              currency.format(total),
+              currency.format(balance),
               style: Theme.of(context).textTheme.headlineMedium?.copyWith(
                     fontWeight: FontWeight.w700,
                   ),
             ),
-            const SizedBox(height: 12),
+            const SizedBox(height: 4),
+            Text(
+              balance >= 0 ? 'Tu balance es positivo' : 'Balance negativo este mes',
+              style: Theme.of(context).textTheme.bodySmall,
+            ),
+            const SizedBox(height: 16),
+            Row(
+              children: [
+                Expanded(
+                  child: _AmountTile(
+                    label: 'Ingresos',
+                    amount: incomeTotal,
+                    icon: Icons.arrow_downward,
+                    color: Theme.of(context).colorScheme.tertiary,
+                  ),
+                ),
+                const SizedBox(width: 12),
+                Expanded(
+                  child: _AmountTile(
+                    label: 'Gastos',
+                    amount: expenseTotal,
+                    icon: Icons.arrow_upward,
+                    color: Theme.of(context).colorScheme.error,
+                  ),
+                ),
+              ],
+            ),
+            const SizedBox(height: 16),
             Container(
               padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
               decoration: BoxDecoration(
@@ -225,7 +265,7 @@ class _SummaryCard extends StatelessWidget {
               child: Row(
                 children: [
                   Icon(
-                    isPositive ? Icons.trending_up : Icons.trending_down,
+                    isPositive ? Icons.trending_down : Icons.trending_up,
                     color: isPositive
                         ? Theme.of(context).colorScheme.tertiary
                         : Theme.of(context).colorScheme.error,
@@ -247,6 +287,55 @@ class _SummaryCard extends StatelessWidget {
   }
 }
 
+class _AmountTile extends StatelessWidget {
+  const _AmountTile({
+    required this.label,
+    required this.amount,
+    required this.icon,
+    required this.color,
+  });
+
+  final String label;
+  final double amount;
+  final IconData icon;
+  final Color color;
+
+  @override
+  Widget build(BuildContext context) {
+    final currency = currencyFormatter();
+    return Container(
+      padding: const EdgeInsets.all(14),
+      decoration: BoxDecoration(
+        color: Theme.of(context).colorScheme.primaryContainer.withOpacity(0.4),
+        borderRadius: BorderRadius.circular(16),
+      ),
+      child: Row(
+        children: [
+          CircleAvatar(
+            radius: 16,
+            backgroundColor: color.withOpacity(0.2),
+            child: Icon(icon, size: 18, color: color),
+          ),
+          const SizedBox(width: 10),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(label, style: Theme.of(context).textTheme.bodySmall),
+                const SizedBox(height: 2),
+                Text(
+                  currency.format(amount),
+                  style: Theme.of(context).textTheme.titleSmall,
+                ),
+              ],
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
 class _TopCategoriesList extends StatelessWidget {
   const _TopCategoriesList({required this.categories});
 
@@ -258,7 +347,6 @@ class _TopCategoriesList extends StatelessWidget {
     if (categories.isEmpty) {
       return const Text('Aún no hay gastos en este mes.');
     }
-
     return Column(
       children: categories
           .map(
@@ -362,26 +450,34 @@ class _SectionHeader extends StatelessWidget {
   }
 }
 
-class HistoryScreen extends StatefulWidget {
-  const HistoryScreen({super.key});
+class MovementsScreen extends StatefulWidget {
+  const MovementsScreen({super.key});
 
   @override
-  State<HistoryScreen> createState() => _HistoryScreenState();
+  State<MovementsScreen> createState() => _MovementsScreenState();
 }
 
-class _HistoryScreenState extends State<HistoryScreen> {
-  ExpenseCategory? _selectedCategory;
+class _MovementsScreenState extends State<MovementsScreen> {
+  MovementCategory? _selectedCategory;
   DateTime _selectedMonth = DateTime(DateTime.now().year, DateTime.now().month);
   String _searchQuery = '';
+  MovementType? _selectedTypeFilter;
 
   @override
   Widget build(BuildContext context) {
     final store = ExpensesScope.of(context);
     final months = store.availableMonths();
 
-    final filtered = store.filteredExpenses(
+    final availableCategories = store.categoriesForFilter(_selectedTypeFilter);
+    if (_selectedCategory != null &&
+        !availableCategories.contains(_selectedCategory)) {
+      _selectedCategory = null;
+    }
+
+    final filtered = store.filteredMovements(
       month: _selectedMonth,
       category: _selectedCategory,
+      type: _selectedTypeFilter,
       query: _searchQuery,
     );
 
@@ -401,11 +497,16 @@ class _HistoryScreenState extends State<HistoryScreen> {
               onChanged: (value) => setState(() => _selectedMonth = value),
             ),
             _CategoryFilter(
-              categories: store.categories,
+              categories: availableCategories,
               selected: _selectedCategory,
               onChanged: (value) => setState(() => _selectedCategory = value),
             ),
           ],
+        ),
+        const SizedBox(height: 12),
+        _TypeFilter(
+          selected: _selectedTypeFilter,
+          onChanged: (value) => setState(() => _selectedTypeFilter = value),
         ),
         const SizedBox(height: 12),
         TextField(
@@ -418,11 +519,11 @@ class _HistoryScreenState extends State<HistoryScreen> {
         ),
         const SizedBox(height: 16),
         if (grouped.isEmpty)
-          const Text('No hay gastos con estos filtros.')
+          const Text('No hay movimientos con estos filtros.')
         else
           ...grouped.entries.map(
             (entry) {
-              final total = store.totalFor(entry.value);
+              final netTotal = store.totalNet(entry.value);
               return Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
@@ -435,30 +536,36 @@ class _HistoryScreenState extends State<HistoryScreen> {
                         style: Theme.of(context).textTheme.titleSmall,
                       ),
                       Text(
-                        currency.format(total),
+                        currency.format(netTotal),
                         style: Theme.of(context).textTheme.titleSmall,
                       ),
                     ],
                   ),
                   const Divider(),
                   ...entry.value.map(
-                    (expense) => ListTile(
+                    (movement) => ListTile(
                       contentPadding: EdgeInsets.zero,
                       leading: CircleAvatar(
-                        backgroundColor:
-                            expense.category.color.withOpacity(0.15),
+                        backgroundColor: movement.category.color.withOpacity(0.15),
                         child: Icon(
-                          expense.category.icon,
-                          color: expense.category.color,
+                          movement.category.icon,
+                          color: movement.category.color,
                         ),
                       ),
-                      title: Text(expense.category.label),
+                      title: Text(movement.category.label),
                       subtitle: Text(
-                        expense.note?.isNotEmpty == true
-                            ? expense.note!
-                            : expense.paymentMethod ?? 'Sin nota',
+                        movement.note?.isNotEmpty == true
+                            ? movement.note!
+                            : movement.paymentMethod ?? 'Sin nota',
                       ),
-                      trailing: Text(currency.format(expense.amount)),
+                      trailing: Text(
+                        '${movement.type == MovementType.income ? '+' : '-'}${currency.format(movement.amount)}',
+                        style: Theme.of(context).textTheme.titleSmall?.copyWith(
+                              color: movement.type == MovementType.income
+                                  ? Theme.of(context).colorScheme.tertiary
+                                  : Theme.of(context).colorScheme.error,
+                            ),
+                      ),
                     ),
                   ),
                 ],
@@ -466,6 +573,29 @@ class _HistoryScreenState extends State<HistoryScreen> {
             },
           ),
       ],
+    );
+  }
+}
+
+class _TypeFilter extends StatelessWidget {
+  const _TypeFilter({
+    required this.selected,
+    required this.onChanged,
+  });
+
+  final MovementType? selected;
+  final ValueChanged<MovementType?> onChanged;
+
+  @override
+  Widget build(BuildContext context) {
+    return _SegmentedToggle<MovementType?>(
+      value: selected,
+      options: const [
+        SegOption(value: null, label: 'Todos'),
+        SegOption(value: MovementType.expense, label: 'Gasto'),
+        SegOption(value: MovementType.income, label: 'Ingreso'),
+      ],
+      onChanged: onChanged,
     );
   }
 }
@@ -511,13 +641,13 @@ class _CategoryFilter extends StatelessWidget {
     required this.onChanged,
   });
 
-  final List<ExpenseCategory> categories;
-  final ExpenseCategory? selected;
-  final ValueChanged<ExpenseCategory?> onChanged;
+  final List<MovementCategory> categories;
+  final MovementCategory? selected;
+  final ValueChanged<MovementCategory?> onChanged;
 
   @override
   Widget build(BuildContext context) {
-    return DropdownButtonFormField<ExpenseCategory>(
+    return DropdownButtonFormField<MovementCategory>(
       value: selected,
       decoration: const InputDecoration(
         labelText: 'Categoría',
@@ -540,18 +670,20 @@ class _CategoryFilter extends StatelessWidget {
   }
 }
 
-class AddExpenseSheet extends StatefulWidget {
-  const AddExpenseSheet({super.key});
+class AddMovementSheet extends StatefulWidget {
+  const AddMovementSheet({super.key});
 
   @override
-  State<AddExpenseSheet> createState() => _AddExpenseSheetState();
+  State<AddMovementSheet> createState() => _AddMovementSheetState();
 }
 
-class _AddExpenseSheetState extends State<AddExpenseSheet> {
+class _AddMovementSheetState extends State<AddMovementSheet> {
   final _amountController = TextEditingController();
   final _noteController = TextEditingController();
   final _paymentController = TextEditingController();
-  ExpenseCategory? _selectedCategory;
+
+  MovementCategory? _selectedCategory;
+  MovementType _selectedType = MovementType.expense;
   DateTime _selectedDate = DateTime.now();
 
   @override
@@ -565,8 +697,8 @@ class _AddExpenseSheetState extends State<AddExpenseSheet> {
   @override
   Widget build(BuildContext context) {
     final store = ExpensesScope.of(context);
-    final recent = store.recentCategories();
     final viewInsets = MediaQuery.of(context).viewInsets;
+    final categories = store.categoriesForType(_selectedType);
 
     return Padding(
       padding: EdgeInsets.only(
@@ -578,7 +710,24 @@ class _AddExpenseSheetState extends State<AddExpenseSheet> {
       child: ListView(
         shrinkWrap: true,
         children: [
-          Text('Nuevo gasto', style: Theme.of(context).textTheme.titleLarge),
+          Text('Nuevo movimiento', style: Theme.of(context).textTheme.titleLarge),
+          const SizedBox(height: 16),
+
+          // Tipo (Gasto/Ingreso) - compatible (sin SegmentedButton)
+          _SegmentedToggle<MovementType>(
+            value: _selectedType,
+            options: const [
+              SegOption(value: MovementType.expense, label: 'Gasto'),
+              SegOption(value: MovementType.income, label: 'Ingreso'),
+            ],
+            onChanged: (value) {
+              setState(() {
+                _selectedType = value;
+                _selectedCategory = null;
+              });
+            },
+          ),
+
           const SizedBox(height: 16),
           TextField(
             controller: _amountController,
@@ -590,49 +739,25 @@ class _AddExpenseSheetState extends State<AddExpenseSheet> {
             ),
           ),
           const SizedBox(height: 16),
-          Text(
-            'Categorías recientes',
-            style: Theme.of(context).textTheme.labelLarge,
-          ),
+
+          // ✅ Sin "categorías recientes": solo TODAS las categorías del tipo seleccionado
+          Text('Categorías', style: Theme.of(context).textTheme.labelLarge),
           const SizedBox(height: 8),
           Wrap(
             spacing: 8,
             runSpacing: 8,
-            children: recent.isEmpty
-                ? [const Text('Aún no hay recientes.')]
-                : recent
-                    .map(
-                      (category) => ChoiceChip(
-                        label: Text(category.label),
-                        selected: _selectedCategory == category,
-                        avatar: Icon(category.icon, size: 18),
-                        onSelected: (_) =>
-                            setState(() => _selectedCategory = category),
-                      ),
-                    )
-                    .toList(),
-          ),
-          const SizedBox(height: 16),
-          Text(
-            'Todas las categorías',
-            style: Theme.of(context).textTheme.labelLarge,
-          ),
-          const SizedBox(height: 8),
-          Wrap(
-            spacing: 8,
-            runSpacing: 8,
-            children: store.categories
+            children: categories
                 .map(
                   (category) => FilterChip(
                     label: Text(category.label),
                     selected: _selectedCategory == category,
                     avatar: Icon(category.icon, size: 18),
-                    onSelected: (_) =>
-                        setState(() => _selectedCategory = category),
+                    onSelected: (_) => setState(() => _selectedCategory = category),
                   ),
                 )
                 .toList(),
           ),
+
           const SizedBox(height: 16),
           ListTile(
             contentPadding: EdgeInsets.zero,
@@ -670,16 +795,21 @@ class _AddExpenseSheetState extends State<AddExpenseSheet> {
             ),
           ),
           const SizedBox(height: 24),
-          FilledButton(
-            onPressed: () => _saveExpense(context),
-            child: const Text('Guardar gasto'),
+
+          // Botón guardar
+          SizedBox(
+            height: 48,
+            child: ElevatedButton(
+              onPressed: () => _saveMovement(context),
+              child: const Text('Guardar movimiento'),
+            ),
           ),
         ],
       ),
     );
   }
 
-  void _saveExpense(BuildContext context) {
+  void _saveMovement(BuildContext context) {
     final store = ExpensesScope.of(context);
     final raw = _amountController.text.replaceAll(',', '.');
     final amount = double.tryParse(raw);
@@ -698,18 +828,17 @@ class _AddExpenseSheetState extends State<AddExpenseSheet> {
       return;
     }
 
-    store.addExpense(
-      Expense(
+    store.addMovement(
+      Movement(
         id: DateTime.now().millisecondsSinceEpoch.toString(),
+        type: _selectedType,
         amount: amount,
         category: _selectedCategory!,
         date: _selectedDate,
-        note: _noteController.text.trim().isEmpty
-            ? null
-            : _noteController.text.trim(),
-        paymentMethod: _paymentController.text.trim().isEmpty
-            ? null
-            : _paymentController.text.trim(),
+        createdAt: DateTime.now(),
+        note: _noteController.text.trim().isEmpty ? null : _noteController.text.trim(),
+        paymentMethod:
+            _paymentController.text.trim().isEmpty ? null : _paymentController.text.trim(),
       ),
     );
 
@@ -717,177 +846,259 @@ class _AddExpenseSheetState extends State<AddExpenseSheet> {
   }
 }
 
-class Expense {
-  Expense({
+/* -------------------------------------------------------------------------- */
+/*                                   MODELOS                                  */
+/* -------------------------------------------------------------------------- */
+
+enum MovementType { expense, income }
+
+class Movement {
+  Movement({
     required this.id,
+    required this.type,
     required this.amount,
     required this.category,
     required this.date,
+    required this.createdAt,
     this.note,
     this.paymentMethod,
   });
 
   final String id;
+  final MovementType type;
   final double amount;
-  final ExpenseCategory category;
+  final MovementCategory category;
   final DateTime date;
+  final DateTime createdAt;
   final String? note;
   final String? paymentMethod;
 }
 
-class ExpenseCategory {
-  const ExpenseCategory({
+class MovementCategory {
+  const MovementCategory({
     required this.id,
     required this.label,
     required this.icon,
     required this.color,
+    required this.type,
   });
 
   final String id;
   final String label;
   final IconData icon;
   final Color color;
+  final MovementType type;
 }
 
 class CategorySummary {
   CategorySummary(this.category, this.total);
 
-  final ExpenseCategory category;
+  final MovementCategory category;
   final double total;
 }
 
+/* -------------------------------------------------------------------------- */
+/*                                    STORE                                   */
+/* -------------------------------------------------------------------------- */
+
 class ExpensesStore extends ChangeNotifier {
-  ExpensesStore(this._expenses);
+  ExpensesStore(this._movements);
 
   factory ExpensesStore.demo() {
-    final categories = defaultCategories;
     final now = DateTime.now();
-
-    final demo = <Expense>[
-      Expense(
+    final demo = <Movement>[
+      Movement(
         id: '1',
+        type: MovementType.expense,
         amount: 42.5,
-        category: categories[0],
+        category: expenseCategories[0],
         date: now.subtract(const Duration(days: 1)),
+        createdAt: now.subtract(const Duration(days: 1)),
         note: 'Cena rápida',
         paymentMethod: 'Tarjeta',
       ),
-      Expense(
+      Movement(
         id: '2',
+        type: MovementType.expense,
         amount: 120,
-        category: categories[1],
+        category: expenseCategories[1],
         date: now.subtract(const Duration(days: 2)),
+        createdAt: now.subtract(const Duration(days: 2)),
         note: 'Supermercado',
         paymentMethod: 'Yape',
       ),
-      Expense(
+      Movement(
         id: '3',
+        type: MovementType.expense,
         amount: 18,
-        category: categories[2],
+        category: expenseCategories[2],
         date: now.subtract(const Duration(days: 2)),
+        createdAt: now.subtract(const Duration(days: 2)),
         note: 'Bus',
       ),
-      Expense(
+      Movement(
         id: '4',
+        type: MovementType.expense,
         amount: 65,
-        category: categories[3],
+        category: expenseCategories[3],
         date: now.subtract(const Duration(days: 3)),
+        createdAt: now.subtract(const Duration(days: 3)),
         note: 'Plan mensual',
       ),
-      Expense(
+      Movement(
         id: '5',
+        type: MovementType.expense,
         amount: 30,
-        category: categories[4],
+        category: expenseCategories[4],
         date: now.subtract(const Duration(days: 5)),
+        createdAt: now.subtract(const Duration(days: 5)),
         note: 'Farmacia',
       ),
-      Expense(
+      Movement(
         id: '6',
+        type: MovementType.expense,
         amount: 25,
-        category: categories[0],
+        category: expenseCategories[0],
         date: now.subtract(const Duration(days: 6)),
+        createdAt: now.subtract(const Duration(days: 6)),
         note: 'Café',
       ),
-      Expense(
+      Movement(
         id: '7',
+        type: MovementType.expense,
         amount: 80,
-        category: categories[5],
+        category: expenseCategories[5],
         date: now.subtract(const Duration(days: 8)),
+        createdAt: now.subtract(const Duration(days: 8)),
         note: 'Ropa',
       ),
-      Expense(
+      Movement(
         id: '8',
+        type: MovementType.expense,
         amount: 210,
-        category: categories[1],
+        category: expenseCategories[1],
         date: now.subtract(const Duration(days: 12)),
+        createdAt: now.subtract(const Duration(days: 12)),
         note: 'Compra grande',
       ),
-      Expense(
+      Movement(
         id: '9',
+        type: MovementType.expense,
         amount: 55,
-        category: categories[2],
+        category: expenseCategories[2],
         date: now.subtract(const Duration(days: 15)),
+        createdAt: now.subtract(const Duration(days: 15)),
         note: 'Taxi',
       ),
-      Expense(
+      Movement(
         id: '10',
+        type: MovementType.expense,
         amount: 16,
-        category: categories[4],
+        category: expenseCategories[4],
         date: now.subtract(const Duration(days: 17)),
+        createdAt: now.subtract(const Duration(days: 17)),
         note: 'Vitaminas',
       ),
-      Expense(
+      Movement(
         id: '11',
+        type: MovementType.expense,
         amount: 95,
-        category: categories[3],
+        category: expenseCategories[3],
         date: DateTime(now.year, now.month - 1, 10),
+        createdAt: DateTime(now.year, now.month - 1, 10),
         note: 'Streaming',
       ),
-      Expense(
+      Movement(
         id: '12',
+        type: MovementType.expense,
         amount: 60,
-        category: categories[0],
+        category: expenseCategories[0],
         date: DateTime(now.year, now.month - 1, 12),
+        createdAt: DateTime(now.year, now.month - 1, 12),
         note: 'Almuerzo',
       ),
+      Movement(
+        id: '13',
+        type: MovementType.income,
+        amount: 2200,
+        category: incomeCategories[0],
+        date: now.subtract(const Duration(days: 4)),
+        createdAt: now.subtract(const Duration(days: 4)),
+        note: 'Sueldo',
+      ),
+      Movement(
+        id: '14',
+        type: MovementType.income,
+        amount: 450,
+        category: incomeCategories[1],
+        date: now.subtract(const Duration(days: 9)),
+        createdAt: now.subtract(const Duration(days: 9)),
+        note: 'Proyecto diseño',
+      ),
+      Movement(
+        id: '15',
+        type: MovementType.income,
+        amount: 120,
+        category: incomeCategories[4],
+        date: now.subtract(const Duration(days: 13)),
+        createdAt: now.subtract(const Duration(days: 13)),
+        note: 'Regalo familiar',
+      ),
     ];
-
     return ExpensesStore(demo);
   }
 
-  final List<Expense> _expenses;
+  final List<Movement> _movements;
 
-  List<Expense> get expenses => List.unmodifiable(_expenses);
-  List<ExpenseCategory> get categories => defaultCategories;
+  List<Movement> get movements => List.unmodifiable(_movements);
 
-  void addExpense(Expense expense) {
-    _expenses.insert(0, expense);
+  List<MovementCategory> categoriesForType(MovementType type) {
+    return type == MovementType.expense ? expenseCategories : incomeCategories;
+  }
+
+  List<MovementCategory> categoriesForFilter(MovementType? type) {
+    if (type == null) {
+      return [...expenseCategories, ...incomeCategories];
+    }
+    return categoriesForType(type);
+  }
+
+  void addMovement(Movement movement) {
+    _movements.insert(0, movement);
     notifyListeners();
   }
 
-  List<Expense> expensesForMonth(DateTime month) {
-    return _expenses.where((expense) {
-      return expense.date.year == month.year && expense.date.month == month.month;
+  List<Movement> movementsForMonth(DateTime month) {
+    return _movements.where((movement) {
+      return movement.date.year == month.year && movement.date.month == month.month;
     }).toList();
   }
 
-  double totalFor(List<Expense> expenses) {
-    return expenses.fold(0, (sum, item) => sum + item.amount);
+  double totalForType(List<Movement> movements, MovementType type) {
+    return movements
+        .where((movement) => movement.type == type)
+        .fold(0.0, (sum, item) => sum + item.amount);
   }
 
-  List<CategorySummary> topCategories(List<Expense> expenses, {int count = 3}) {
-    final totals = <ExpenseCategory, double>{};
+  // Neto (ingresos - gastos)
+  double totalNet(List<Movement> movements) {
+    return movements.fold<double>(0, (sum, item) {
+      return item.type == MovementType.income ? sum + item.amount : sum - item.amount;
+    });
+  }
 
-    for (final expense in expenses) {
+  List<CategorySummary> topCategories(Iterable<Movement> movements, {int count = 3}) {
+    final totals = <MovementCategory, double>{};
+    for (final movement in movements) {
       totals.update(
-        expense.category,
-        (value) => value + expense.amount,
-        ifAbsent: () => expense.amount,
+        movement.category,
+        (value) => value + movement.amount,
+        ifAbsent: () => movement.amount,
       );
     }
 
     final summaries = totals.entries
-        .map((entry) => CategorySummary(entry.key, entry.value))
+        .map((e) => CategorySummary(e.key, e.value))
         .toList()
       ..sort((a, b) => b.total.compareTo(a.total));
 
@@ -896,63 +1107,47 @@ class ExpensesStore extends ChangeNotifier {
 
   List<DateTime> availableMonths() {
     final months = <DateTime>{};
-
-    for (final expense in _expenses) {
-      months.add(DateTime(expense.date.year, expense.date.month));
+    for (final movement in _movements) {
+      months.add(DateTime(movement.date.year, movement.date.month));
     }
-
     months.add(DateTime(DateTime.now().year, DateTime.now().month));
-
     final list = months.toList()..sort((a, b) => b.compareTo(a));
     return list;
   }
 
-  List<Expense> filteredExpenses({
+  List<Movement> filteredMovements({
     required DateTime month,
-    ExpenseCategory? category,
+    MovementCategory? category,
+    MovementType? type,
     String query = '',
   }) {
     final lower = query.trim().toLowerCase();
-
-    return _expenses.where((expense) {
+    return _movements.where((movement) {
       final matchesMonth =
-          expense.date.year == month.year && expense.date.month == month.month;
-
-      final matchesCategory = category == null || expense.category == category;
-
+          movement.date.year == month.year && movement.date.month == month.month;
+      final matchesCategory = category == null || movement.category == category;
+      final matchesType = type == null || movement.type == type;
       final matchesQuery = lower.isEmpty ||
-          expense.category.label.toLowerCase().contains(lower) ||
-          (expense.note?.toLowerCase().contains(lower) ?? false);
-
-      return matchesMonth && matchesCategory && matchesQuery;
+          movement.category.label.toLowerCase().contains(lower) ||
+          (movement.note?.toLowerCase().contains(lower) ?? false);
+      return matchesMonth && matchesCategory && matchesType && matchesQuery;
     }).toList();
   }
 
-  Map<DateTime, List<Expense>> groupByDay(List<Expense> expenses) {
-    final map = <DateTime, List<Expense>>{};
-
-    for (final expense in expenses) {
-      final day = DateTime(expense.date.year, expense.date.month, expense.date.day);
-      map.putIfAbsent(day, () => []).add(expense);
+  Map<DateTime, List<Movement>> groupByDay(List<Movement> movements) {
+    final map = <DateTime, List<Movement>>{};
+    for (final movement in movements) {
+      final day = DateTime(movement.date.year, movement.date.month, movement.date.day);
+      map.putIfAbsent(day, () => []).add(movement);
     }
-
     final entries = map.entries.toList()..sort((a, b) => b.key.compareTo(a.key));
     return Map.fromEntries(entries);
   }
-
-  List<ExpenseCategory> recentCategories({int count = 3}) {
-    final seen = <String, ExpenseCategory>{};
-
-    for (final expense in _expenses) {
-      if (!seen.containsKey(expense.category.id)) {
-        seen[expense.category.id] = expense.category;
-      }
-      if (seen.length >= count) break;
-    }
-
-    return seen.values.toList();
-  }
 }
+
+/* -------------------------------------------------------------------------- */
+/*                                     SCOPE                                  */
+/* -------------------------------------------------------------------------- */
 
 class ExpensesScope extends InheritedNotifier<ExpensesStore> {
   const ExpensesScope({
@@ -968,48 +1163,111 @@ class ExpensesScope extends InheritedNotifier<ExpensesStore> {
   }
 }
 
-final defaultCategories = <ExpenseCategory>[
-  ExpenseCategory(
+/* -------------------------------------------------------------------------- */
+/*                                  CATEGORÍAS                                */
+/* -------------------------------------------------------------------------- */
+
+final expenseCategories = <MovementCategory>[
+  MovementCategory(
     id: 'food',
     label: 'Comida',
     icon: Icons.restaurant,
     color: Colors.orange,
+    type: MovementType.expense,
   ),
-  ExpenseCategory(
+  MovementCategory(
     id: 'grocery',
     label: 'Supermercado',
     icon: Icons.local_grocery_store,
     color: Colors.green,
+    type: MovementType.expense,
   ),
-  ExpenseCategory(
+  MovementCategory(
     id: 'transport',
     label: 'Transporte',
     icon: Icons.directions_car,
     color: Colors.blue,
+    type: MovementType.expense,
   ),
-  ExpenseCategory(
+  MovementCategory(
     id: 'subscriptions',
     label: 'Suscripciones',
     icon: Icons.subscriptions,
     color: Colors.purple,
+    type: MovementType.expense,
   ),
-  ExpenseCategory(
+  MovementCategory(
     id: 'health',
     label: 'Salud',
     icon: Icons.local_hospital,
     color: Colors.redAccent,
+    type: MovementType.expense,
   ),
-  ExpenseCategory(
+  MovementCategory(
     id: 'shopping',
     label: 'Compras',
     icon: Icons.shopping_bag,
     color: Colors.teal,
+    type: MovementType.expense,
   ),
 ];
+
+final incomeCategories = <MovementCategory>[
+  MovementCategory(
+    id: 'salary',
+    label: 'Salario',
+    icon: Icons.account_balance_wallet,
+    color: Colors.indigo,
+    type: MovementType.income,
+  ),
+  MovementCategory(
+    id: 'freelance',
+    label: 'Freelance',
+    icon: Icons.work_outline,
+    color: Colors.lightBlue,
+    type: MovementType.income,
+  ),
+  MovementCategory(
+    id: 'sales',
+    label: 'Ventas',
+    icon: Icons.storefront,
+    color: Colors.teal,
+    type: MovementType.income,
+  ),
+  MovementCategory(
+    id: 'refund',
+    label: 'Reembolso',
+    icon: Icons.replay_circle_filled,
+    color: Colors.green,
+    type: MovementType.income,
+  ),
+  MovementCategory(
+    id: 'gift',
+    label: 'Regalo',
+    icon: Icons.card_giftcard,
+    color: Colors.pinkAccent,
+    type: MovementType.income,
+  ),
+  MovementCategory(
+    id: 'other',
+    label: 'Otros',
+    icon: Icons.more_horiz,
+    color: Colors.blueGrey,
+    type: MovementType.income,
+  ),
+];
+
+/* -------------------------------------------------------------------------- */
+/*                                   HELPERS                                  */
+/* -------------------------------------------------------------------------- */
 
 NumberFormat currencyFormatter() {
   return NumberFormat.simpleCurrency(locale: 'es_PE', name: 'PEN');
 }
+
+/* -------------------------------------------------------------------------- */
+/*                                    THEME                                   */
+/* -------------------------------------------------------------------------- */
 
 ThemeData buildAppTheme() {
   const seedColor = Color(0xFF7D6CF2);
@@ -1086,6 +1344,11 @@ ThemeData buildAppTheme() {
         fontWeight: FontWeight.w700,
         color: Color(0xFF1F1D2B),
       ),
+      titleLarge: TextStyle(
+        fontSize: 22,
+        fontWeight: FontWeight.w700,
+        color: Color(0xFF1F1D2B),
+      ),
       titleMedium: TextStyle(
         fontSize: 18,
         fontWeight: FontWeight.w600,
@@ -1118,3 +1381,63 @@ ThemeData buildAppTheme() {
   );
 }
 
+/* -------------------------------------------------------------------------- */
+/*                       SIMPLE SEGMENTED CONTROL (SAFE)                       */
+/* -------------------------------------------------------------------------- */
+
+class SegOption<T> {
+  const SegOption({required this.value, required this.label});
+  final T value;
+  final String label;
+}
+
+class _SegmentedToggle<T> extends StatelessWidget {
+  const _SegmentedToggle({
+    required this.value,
+    required this.options,
+    required this.onChanged,
+  });
+
+  final T value;
+  final List<SegOption<T>> options;
+  final ValueChanged<T> onChanged;
+
+  @override
+  Widget build(BuildContext context) {
+    final cs = Theme.of(context).colorScheme;
+
+    return Container(
+      decoration: BoxDecoration(
+        color: cs.primaryContainer.withOpacity(0.35),
+        borderRadius: BorderRadius.circular(16),
+      ),
+      child: Row(
+        children: options.map((o) {
+          final selected = o.value == value;
+          return Expanded(
+            child: InkWell(
+              borderRadius: BorderRadius.circular(16),
+              onTap: () => onChanged(o.value),
+              child: AnimatedContainer(
+                duration: const Duration(milliseconds: 180),
+                padding: const EdgeInsets.symmetric(vertical: 10),
+                decoration: BoxDecoration(
+                  color: selected ? cs.primary : Colors.transparent,
+                  borderRadius: BorderRadius.circular(16),
+                ),
+                child: Center(
+                  child: Text(
+                    o.label,
+                    style: Theme.of(context).textTheme.labelLarge?.copyWith(
+                          color: selected ? Colors.white : const Color(0xFF1F1D2B),
+                        ),
+                  ),
+                ),
+              ),
+            ),
+          );
+        }).toList(),
+      ),
+    );
+  }
+}
