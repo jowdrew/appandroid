@@ -48,6 +48,7 @@ class _HomeShellState extends State<HomeShell> {
   @override
   Widget build(BuildContext context) {
     final store = ExpensesScope.of(context);
+
     return Scaffold(
       appBar: AppBar(
         title: Text(_currentIndex == 0 ? 'Dashboard mensual' : 'Movimientos'),
@@ -92,7 +93,6 @@ class _HomeShellState extends State<HomeShell> {
     await showModalBottomSheet<void>(
       context: context,
       isScrollControlled: true,
-      showDragHandle: true,
       builder: (_) => const AddMovementSheet(),
     );
   }
@@ -105,21 +105,26 @@ class DashboardScreen extends StatelessWidget {
   Widget build(BuildContext context) {
     final store = ExpensesScope.of(context);
     final now = DateTime.now();
+
     final monthMovements = store.movementsForMonth(now);
     final previousMonthMovements = store.movementsForMonth(
       DateTime(now.year, now.month - 1, 1),
     );
+
     final incomeTotal = store.totalForType(monthMovements, MovementType.income);
     final expenseTotal = store.totalForType(monthMovements, MovementType.expense);
     final balance = incomeTotal - expenseTotal;
+
     final previousExpenseTotal =
         store.totalForType(previousMonthMovements, MovementType.expense);
     final diff = expenseTotal - previousExpenseTotal;
+
     final percentChange = previousExpenseTotal == 0
         ? 0.0
-        : (diff / previousExpenseTotal * 100).clamp(-999, 999);
+        : (diff / previousExpenseTotal * 100).clamp(-999, 999).toDouble();
+
     final topExpenseCategories = store.topCategories(
-      monthMovements.where((movement) => movement.type == MovementType.expense),
+      monthMovements.where((m) => m.type == MovementType.expense),
       count: 3,
     );
 
@@ -140,14 +145,14 @@ class DashboardScreen extends StatelessWidget {
           diff: diff,
         ),
         const SizedBox(height: 20),
-        _SectionHeader(
+        const _SectionHeader(
           title: 'Top categorías de gasto',
           subtitle: 'Lo más relevante de tu mes',
         ),
         const SizedBox(height: 12),
         _TopCategoriesList(categories: topExpenseCategories),
         const SizedBox(height: 20),
-        _SectionHeader(
+        const _SectionHeader(
           title: 'Distribución del mes',
           subtitle: 'Comparte tu gasto por categorías',
         ),
@@ -178,7 +183,9 @@ class _SummaryCard extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final currency = currencyFormatter();
+    // Para gastos: si gastaste menos que el mes anterior => positivo
     final isPositive = diff <= 0;
+
     final comparisonLabel = previousExpenseTotal == 0
         ? 'Sin datos del mes anterior'
         : '${percentChange >= 0 ? '+' : ''}${percentChange.toStringAsFixed(1)}% vs mes anterior';
@@ -221,9 +228,7 @@ class _SummaryCard extends StatelessWidget {
             ),
             const SizedBox(height: 4),
             Text(
-              balance >= 0
-                  ? 'Tu balance es positivo'
-                  : 'Balance negativo este mes',
+              balance >= 0 ? 'Tu balance es positivo' : 'Balance negativo este mes',
               style: Theme.of(context).textTheme.bodySmall,
             ),
             const SizedBox(height: 16),
@@ -374,8 +379,13 @@ class _CategoryChart extends StatelessWidget {
     if (data.isEmpty) {
       return const Text('Registra gastos para ver el gráfico.');
     }
-    final maxValue =
-        data.map((item) => item.total).reduce((a, b) => a > b ? a : b);
+
+    final maxValue = data.fold<double>(
+      0,
+      (max, item) => item.total > max ? item.total : max,
+    );
+    final safeMax = maxValue <= 0 ? 1 : maxValue;
+
     return Card(
       elevation: 0,
       child: Padding(
@@ -390,7 +400,7 @@ class _CategoryChart extends StatelessWidget {
                     children: [
                       AnimatedContainer(
                         duration: const Duration(milliseconds: 300),
-                        height: 80 * (summary.total / maxValue),
+                        height: 80 * (summary.total / safeMax),
                         margin: const EdgeInsets.symmetric(horizontal: 6),
                         decoration: BoxDecoration(
                           color: summary.category.color,
@@ -457,17 +467,20 @@ class _MovementsScreenState extends State<MovementsScreen> {
   Widget build(BuildContext context) {
     final store = ExpensesScope.of(context);
     final months = store.availableMonths();
+
     final availableCategories = store.categoriesForFilter(_selectedTypeFilter);
     if (_selectedCategory != null &&
         !availableCategories.contains(_selectedCategory)) {
       _selectedCategory = null;
     }
+
     final filtered = store.filteredMovements(
       month: _selectedMonth,
       category: _selectedCategory,
       type: _selectedTypeFilter,
       query: _searchQuery,
     );
+
     final grouped = store.groupByDay(filtered);
     final currency = currencyFormatter();
 
@@ -491,22 +504,9 @@ class _MovementsScreenState extends State<MovementsScreen> {
           ],
         ),
         const SizedBox(height: 12),
-        SegmentedButton<MovementType>(
-          segments: const [
-            ButtonSegment(value: MovementType.expense, label: Text('Gasto')),
-            ButtonSegment(value: MovementType.income, label: Text('Ingreso')),
-          ],
-          multiSelectionEnabled: false,
-          emptySelectionAllowed: true,
-          selected: _selectedTypeFilter == null
-              ? <MovementType>{}
-              : {_selectedTypeFilter!},
-          onSelectionChanged: (selection) {
-            setState(() {
-              _selectedTypeFilter =
-                  selection.isEmpty ? null : selection.first;
-            });
-          },
+        _TypeFilter(
+          selected: _selectedTypeFilter,
+          onChanged: (value) => setState(() => _selectedTypeFilter = value),
         ),
         const SizedBox(height: 12),
         TextField(
@@ -523,7 +523,7 @@ class _MovementsScreenState extends State<MovementsScreen> {
         else
           ...grouped.entries.map(
             (entry) {
-              final total = store.totalFor(entry.value);
+              final netTotal = store.totalNet(entry.value);
               return Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
@@ -536,7 +536,7 @@ class _MovementsScreenState extends State<MovementsScreen> {
                         style: Theme.of(context).textTheme.titleSmall,
                       ),
                       Text(
-                        currency.format(total),
+                        currency.format(netTotal),
                         style: Theme.of(context).textTheme.titleSmall,
                       ),
                     ],
@@ -546,10 +546,11 @@ class _MovementsScreenState extends State<MovementsScreen> {
                     (movement) => ListTile(
                       contentPadding: EdgeInsets.zero,
                       leading: CircleAvatar(
-                        backgroundColor:
-                            movement.category.color.withOpacity(0.15),
-                        child: Icon(movement.category.icon,
-                            color: movement.category.color),
+                        backgroundColor: movement.category.color.withOpacity(0.15),
+                        child: Icon(
+                          movement.category.icon,
+                          color: movement.category.color,
+                        ),
                       ),
                       title: Text(movement.category.label),
                       subtitle: Text(
@@ -572,6 +573,29 @@ class _MovementsScreenState extends State<MovementsScreen> {
             },
           ),
       ],
+    );
+  }
+}
+
+class _TypeFilter extends StatelessWidget {
+  const _TypeFilter({
+    required this.selected,
+    required this.onChanged,
+  });
+
+  final MovementType? selected;
+  final ValueChanged<MovementType?> onChanged;
+
+  @override
+  Widget build(BuildContext context) {
+    return _SegmentedToggle<MovementType?>(
+      value: selected,
+      options: const [
+        SegOption(value: null, label: 'Todos'),
+        SegOption(value: MovementType.expense, label: 'Gasto'),
+        SegOption(value: MovementType.income, label: 'Ingreso'),
+      ],
+      onChanged: onChanged,
     );
   }
 }
@@ -604,9 +628,7 @@ class _MonthFilter extends StatelessWidget {
           )
           .toList(),
       onChanged: (value) {
-        if (value != null) {
-          onChanged(value);
-        }
+        if (value != null) onChanged(value);
       },
     );
   }
@@ -659,6 +681,7 @@ class _AddMovementSheetState extends State<AddMovementSheet> {
   final _amountController = TextEditingController();
   final _noteController = TextEditingController();
   final _paymentController = TextEditingController();
+
   MovementCategory? _selectedCategory;
   MovementType _selectedType = MovementType.expense;
   DateTime _selectedDate = DateTime.now();
@@ -687,22 +710,24 @@ class _AddMovementSheetState extends State<AddMovementSheet> {
       child: ListView(
         shrinkWrap: true,
         children: [
-          Text('Nuevo movimiento',
-              style: Theme.of(context).textTheme.titleLarge),
+          Text('Nuevo movimiento', style: Theme.of(context).textTheme.titleLarge),
           const SizedBox(height: 16),
-          SegmentedButton<MovementType>(
-            segments: const [
-              ButtonSegment(value: MovementType.expense, label: Text('Gasto')),
-              ButtonSegment(value: MovementType.income, label: Text('Ingreso')),
+
+          // Tipo (Gasto/Ingreso) - compatible (sin SegmentedButton)
+          _SegmentedToggle<MovementType>(
+            value: _selectedType,
+            options: const [
+              SegOption(value: MovementType.expense, label: 'Gasto'),
+              SegOption(value: MovementType.income, label: 'Ingreso'),
             ],
-            selected: {_selectedType},
-            onSelectionChanged: (selection) {
+            onChanged: (value) {
               setState(() {
-                _selectedType = selection.first;
+                _selectedType = value;
                 _selectedCategory = null;
               });
             },
           ),
+
           const SizedBox(height: 16),
           TextField(
             controller: _amountController,
@@ -714,8 +739,9 @@ class _AddMovementSheetState extends State<AddMovementSheet> {
             ),
           ),
           const SizedBox(height: 16),
-          Text('Categorías',
-              style: Theme.of(context).textTheme.labelLarge),
+
+          // ✅ Sin "categorías recientes": solo TODAS las categorías del tipo seleccionado
+          Text('Categorías', style: Theme.of(context).textTheme.labelLarge),
           const SizedBox(height: 8),
           Wrap(
             spacing: 8,
@@ -726,13 +752,12 @@ class _AddMovementSheetState extends State<AddMovementSheet> {
                     label: Text(category.label),
                     selected: _selectedCategory == category,
                     avatar: Icon(category.icon, size: 18),
-                    onSelected: (_) => setState(() {
-                      _selectedCategory = category;
-                    }),
+                    onSelected: (_) => setState(() => _selectedCategory = category),
                   ),
                 )
                 .toList(),
           ),
+
           const SizedBox(height: 16),
           ListTile(
             contentPadding: EdgeInsets.zero,
@@ -770,9 +795,14 @@ class _AddMovementSheetState extends State<AddMovementSheet> {
             ),
           ),
           const SizedBox(height: 24),
-          FilledButton(
-            onPressed: () => _saveMovement(context),
-            child: const Text('Guardar movimiento'),
+
+          // Botón guardar
+          SizedBox(
+            height: 48,
+            child: ElevatedButton(
+              onPressed: () => _saveMovement(context),
+              child: const Text('Guardar movimiento'),
+            ),
           ),
         ],
       ),
@@ -806,18 +836,19 @@ class _AddMovementSheetState extends State<AddMovementSheet> {
         category: _selectedCategory!,
         date: _selectedDate,
         createdAt: DateTime.now(),
-        note: _noteController.text.trim().isEmpty
-            ? null
-            : _noteController.text.trim(),
-        paymentMethod: _paymentController.text.trim().isEmpty
-            ? null
-            : _paymentController.text.trim(),
+        note: _noteController.text.trim().isEmpty ? null : _noteController.text.trim(),
+        paymentMethod:
+            _paymentController.text.trim().isEmpty ? null : _paymentController.text.trim(),
       ),
     );
 
     Navigator.of(context).pop();
   }
 }
+
+/* -------------------------------------------------------------------------- */
+/*                                   MODELOS                                  */
+/* -------------------------------------------------------------------------- */
 
 enum MovementType { expense, income }
 
@@ -865,6 +896,10 @@ class CategorySummary {
   final MovementCategory category;
   final double total;
 }
+
+/* -------------------------------------------------------------------------- */
+/*                                    STORE                                   */
+/* -------------------------------------------------------------------------- */
 
 class ExpensesStore extends ChangeNotifier {
   ExpensesStore(this._movements);
@@ -1035,36 +1070,38 @@ class ExpensesStore extends ChangeNotifier {
 
   List<Movement> movementsForMonth(DateTime month) {
     return _movements.where((movement) {
-      return movement.date.year == month.year &&
-          movement.date.month == month.month;
+      return movement.date.year == month.year && movement.date.month == month.month;
     }).toList();
-  }
-
-  double totalFor(List<Movement> movements) {
-    return movements.fold(0, (sum, item) {
-      return item.type == MovementType.income
-          ? sum + item.amount
-          : sum - item.amount;
-    });
   }
 
   double totalForType(List<Movement> movements, MovementType type) {
     return movements
         .where((movement) => movement.type == type)
-        .fold(0, (sum, item) => sum + item.amount);
+        .fold(0.0, (sum, item) => sum + item.amount);
   }
 
-  List<CategorySummary> topCategories(Iterable<Movement> movements,
-      {int count = 3}) {
+  // Neto (ingresos - gastos)
+  double totalNet(List<Movement> movements) {
+    return movements.fold<double>(0, (sum, item) {
+      return item.type == MovementType.income ? sum + item.amount : sum - item.amount;
+    });
+  }
+
+  List<CategorySummary> topCategories(Iterable<Movement> movements, {int count = 3}) {
     final totals = <MovementCategory, double>{};
     for (final movement in movements) {
-      totals.update(movement.category, (value) => value + movement.amount,
-          ifAbsent: () => movement.amount);
+      totals.update(
+        movement.category,
+        (value) => value + movement.amount,
+        ifAbsent: () => movement.amount,
+      );
     }
+
     final summaries = totals.entries
-        .map((entry) => CategorySummary(entry.key, entry.value))
+        .map((e) => CategorySummary(e.key, e.value))
         .toList()
       ..sort((a, b) => b.total.compareTo(a.total));
+
     return summaries.take(count).toList();
   }
 
@@ -1086,10 +1123,9 @@ class ExpensesStore extends ChangeNotifier {
   }) {
     final lower = query.trim().toLowerCase();
     return _movements.where((movement) {
-      final matchesMonth = movement.date.year == month.year &&
-          movement.date.month == month.month;
-      final matchesCategory =
-          category == null || movement.category == category;
+      final matchesMonth =
+          movement.date.year == month.year && movement.date.month == month.month;
+      final matchesCategory = category == null || movement.category == category;
       final matchesType = type == null || movement.type == type;
       final matchesQuery = lower.isEmpty ||
           movement.category.label.toLowerCase().contains(lower) ||
@@ -1101,14 +1137,17 @@ class ExpensesStore extends ChangeNotifier {
   Map<DateTime, List<Movement>> groupByDay(List<Movement> movements) {
     final map = <DateTime, List<Movement>>{};
     for (final movement in movements) {
-      final day =
-          DateTime(movement.date.year, movement.date.month, movement.date.day);
+      final day = DateTime(movement.date.year, movement.date.month, movement.date.day);
       map.putIfAbsent(day, () => []).add(movement);
     }
     final entries = map.entries.toList()..sort((a, b) => b.key.compareTo(a.key));
     return Map.fromEntries(entries);
   }
 }
+
+/* -------------------------------------------------------------------------- */
+/*                                     SCOPE                                  */
+/* -------------------------------------------------------------------------- */
 
 class ExpensesScope extends InheritedNotifier<ExpensesStore> {
   const ExpensesScope({
@@ -1123,6 +1162,10 @@ class ExpensesScope extends InheritedNotifier<ExpensesStore> {
     return scope!.notifier!;
   }
 }
+
+/* -------------------------------------------------------------------------- */
+/*                                  CATEGORÍAS                                */
+/* -------------------------------------------------------------------------- */
 
 final expenseCategories = <MovementCategory>[
   MovementCategory(
@@ -1214,9 +1257,17 @@ final incomeCategories = <MovementCategory>[
   ),
 ];
 
+/* -------------------------------------------------------------------------- */
+/*                                   HELPERS                                  */
+/* -------------------------------------------------------------------------- */
+
 NumberFormat currencyFormatter() {
   return NumberFormat.simpleCurrency(locale: 'es_PE', name: 'PEN');
 }
+
+/* -------------------------------------------------------------------------- */
+/*                                    THEME                                   */
+/* -------------------------------------------------------------------------- */
 
 ThemeData buildAppTheme() {
   const seedColor = Color(0xFF7D6CF2);
@@ -1227,15 +1278,17 @@ ThemeData buildAppTheme() {
   const neutral = Color(0xFF8EC5FF);
   const container = Color(0xFFEDE9FF);
 
-  final colorScheme = ColorScheme.fromSeed(
+  final base = ColorScheme.fromSeed(
     seedColor: seedColor,
     brightness: Brightness.light,
+  );
+
+  final colorScheme = base.copyWith(
     primary: seedColor,
     secondary: neutral,
     tertiary: positive,
     error: negative,
     surface: surface,
-    background: background,
     primaryContainer: container,
   );
 
@@ -1244,11 +1297,11 @@ ThemeData buildAppTheme() {
     colorScheme: colorScheme,
     scaffoldBackgroundColor: background,
     fontFamily: 'Roboto',
-    appBarTheme: AppBarTheme(
+    appBarTheme: const AppBarTheme(
       backgroundColor: background,
       elevation: 0,
       centerTitle: false,
-      titleTextStyle: const TextStyle(
+      titleTextStyle: TextStyle(
         fontSize: 20,
         fontWeight: FontWeight.w600,
         color: Color(0xFF1F1D2B),
@@ -1274,11 +1327,11 @@ ThemeData buildAppTheme() {
       contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
       border: OutlineInputBorder(
         borderRadius: BorderRadius.circular(16),
-        borderSide: BorderSide(color: colorScheme.outlineVariant),
+        borderSide: BorderSide(color: colorScheme.outline.withOpacity(0.35)),
       ),
       enabledBorder: OutlineInputBorder(
         borderRadius: BorderRadius.circular(16),
-        borderSide: BorderSide(color: colorScheme.outlineVariant),
+        borderSide: BorderSide(color: colorScheme.outline.withOpacity(0.35)),
       ),
       focusedBorder: OutlineInputBorder(
         borderRadius: BorderRadius.circular(16),
@@ -1288,6 +1341,11 @@ ThemeData buildAppTheme() {
     textTheme: const TextTheme(
       headlineMedium: TextStyle(
         fontSize: 34,
+        fontWeight: FontWeight.w700,
+        color: Color(0xFF1F1D2B),
+      ),
+      titleLarge: TextStyle(
+        fontSize: 22,
         fontWeight: FontWeight.w700,
         color: Color(0xFF1F1D2B),
       ),
@@ -1321,4 +1379,65 @@ ThemeData buildAppTheme() {
       ),
     ),
   );
+}
+
+/* -------------------------------------------------------------------------- */
+/*                       SIMPLE SEGMENTED CONTROL (SAFE)                       */
+/* -------------------------------------------------------------------------- */
+
+class SegOption<T> {
+  const SegOption({required this.value, required this.label});
+  final T value;
+  final String label;
+}
+
+class _SegmentedToggle<T> extends StatelessWidget {
+  const _SegmentedToggle({
+    required this.value,
+    required this.options,
+    required this.onChanged,
+  });
+
+  final T value;
+  final List<SegOption<T>> options;
+  final ValueChanged<T> onChanged;
+
+  @override
+  Widget build(BuildContext context) {
+    final cs = Theme.of(context).colorScheme;
+
+    return Container(
+      decoration: BoxDecoration(
+        color: cs.primaryContainer.withOpacity(0.35),
+        borderRadius: BorderRadius.circular(16),
+      ),
+      child: Row(
+        children: options.map((o) {
+          final selected = o.value == value;
+          return Expanded(
+            child: InkWell(
+              borderRadius: BorderRadius.circular(16),
+              onTap: () => onChanged(o.value),
+              child: AnimatedContainer(
+                duration: const Duration(milliseconds: 180),
+                padding: const EdgeInsets.symmetric(vertical: 10),
+                decoration: BoxDecoration(
+                  color: selected ? cs.primary : Colors.transparent,
+                  borderRadius: BorderRadius.circular(16),
+                ),
+                child: Center(
+                  child: Text(
+                    o.label,
+                    style: Theme.of(context).textTheme.labelLarge?.copyWith(
+                          color: selected ? Colors.white : const Color(0xFF1F1D2B),
+                        ),
+                  ),
+                ),
+              ),
+            ),
+          );
+        }).toList(),
+      ),
+    );
+  }
 }
