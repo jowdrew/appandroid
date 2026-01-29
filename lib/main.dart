@@ -5,6 +5,7 @@ import 'package:intl/intl.dart';
 
 Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
+
   Intl.defaultLocale = 'es_PE';
   await initializeDateFormatting('es_PE', null);
 
@@ -19,7 +20,7 @@ class ExpensesApp extends StatelessWidget {
     return ExpensesScope(
       notifier: ExpensesStore.demo(),
       child: MaterialApp(
-        title: 'Gastos',
+        title: 'Finanzas',
         debugShowCheckedModeBanner: false,
         theme: buildAppTheme(),
         locale: const Locale('es', 'PE'),
@@ -45,14 +46,14 @@ class HomeShell extends StatefulWidget {
 class _HomeShellState extends State<HomeShell> {
   int _currentIndex = 0;
 
+  static const _titles = ['Dashboard mensual', 'Movimientos', 'Presupuesto'];
+
   @override
   Widget build(BuildContext context) {
     final store = ExpensesScope.of(context);
 
     return Scaffold(
-      appBar: AppBar(
-        title: Text(_currentIndex == 0 ? 'Dashboard mensual' : 'Movimientos'),
-      ),
+      appBar: AppBar(title: Text(_titles[_currentIndex])),
       body: AnimatedBuilder(
         animation: store,
         builder: (context, _) {
@@ -61,6 +62,7 @@ class _HomeShellState extends State<HomeShell> {
             children: const [
               DashboardScreen(),
               MovementsScreen(),
+              BudgetScreen(),
             ],
           );
         },
@@ -84,6 +86,11 @@ class _HomeShellState extends State<HomeShell> {
             selectedIcon: Icon(Icons.swap_horiz),
             label: 'Movimientos',
           ),
+          NavigationDestination(
+            icon: Icon(Icons.pie_chart_outline),
+            selectedIcon: Icon(Icons.pie_chart),
+            label: 'Presupuesto',
+          ),
         ],
       ),
     );
@@ -93,10 +100,15 @@ class _HomeShellState extends State<HomeShell> {
     await showModalBottomSheet<void>(
       context: context,
       isScrollControlled: true,
+      showDragHandle: true,
       builder: (_) => const AddMovementSheet(),
     );
   }
 }
+
+// ---------------------------
+// DASHBOARD
+// ---------------------------
 
 class DashboardScreen extends StatelessWidget {
   const DashboardScreen({super.key});
@@ -112,21 +124,28 @@ class DashboardScreen extends StatelessWidget {
     );
 
     final incomeTotal = store.totalForType(monthMovements, MovementType.income);
-    final expenseTotal = store.totalForType(monthMovements, MovementType.expense);
+    final expenseTotal = store.totalForType(
+      monthMovements,
+      MovementType.expense,
+    );
     final balance = incomeTotal - expenseTotal;
 
-    final previousExpenseTotal =
-        store.totalForType(previousMonthMovements, MovementType.expense);
-    final diff = expenseTotal - previousExpenseTotal;
+    final previousExpenseTotal = store.totalForType(
+      previousMonthMovements,
+      MovementType.expense,
+    );
 
+    final diff = expenseTotal - previousExpenseTotal;
     final percentChange = previousExpenseTotal == 0
         ? 0.0
-        : (diff / previousExpenseTotal * 100).clamp(-999, 999).toDouble();
+        : (diff / previousExpenseTotal * 100).clamp(-999.0, 999.0).toDouble();
 
     final topExpenseCategories = store.topCategories(
       monthMovements.where((m) => m.type == MovementType.expense),
       count: 3,
     );
+
+    final budgetSummary = store.budgetSummaryForMonth(now);
 
     return ListView(
       padding: const EdgeInsets.fromLTRB(20, 16, 20, 24),
@@ -158,6 +177,13 @@ class DashboardScreen extends StatelessWidget {
         ),
         const SizedBox(height: 12),
         _CategoryChart(data: topExpenseCategories),
+        const SizedBox(height: 20),
+        const _SectionHeader(
+          title: 'Presupuesto del mes',
+          subtitle: 'Planificado vs gastado',
+        ),
+        const SizedBox(height: 12),
+        _BudgetSummaryCard(summary: budgetSummary),
       ],
     );
   }
@@ -183,7 +209,8 @@ class _SummaryCard extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final currency = currencyFormatter();
-    // Para gastos: si gastaste menos que el mes anterior => positivo
+
+    // Para gastos: bajar es "positivo"
     final isPositive = diff <= 0;
 
     final comparisonLabel = previousExpenseTotal == 0
@@ -192,7 +219,6 @@ class _SummaryCard extends StatelessWidget {
 
     return Card(
       elevation: 0,
-      color: Theme.of(context).colorScheme.surface,
       child: Padding(
         padding: const EdgeInsets.all(20),
         child: Column(
@@ -206,8 +232,10 @@ class _SummaryCard extends StatelessWidget {
                   style: Theme.of(context).textTheme.labelLarge,
                 ),
                 Container(
-                  padding:
-                      const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+                  padding: const EdgeInsets.symmetric(
+                    horizontal: 10,
+                    vertical: 6,
+                  ),
                   decoration: BoxDecoration(
                     color: Theme.of(context).colorScheme.primaryContainer,
                     borderRadius: BorderRadius.circular(999),
@@ -222,13 +250,15 @@ class _SummaryCard extends StatelessWidget {
             const SizedBox(height: 12),
             Text(
               currency.format(balance),
-              style: Theme.of(context).textTheme.headlineMedium?.copyWith(
-                    fontWeight: FontWeight.w700,
-                  ),
+              style: Theme.of(
+                context,
+              ).textTheme.headlineMedium?.copyWith(fontWeight: FontWeight.w700),
             ),
             const SizedBox(height: 4),
             Text(
-              balance >= 0 ? 'Tu balance es positivo' : 'Balance negativo este mes',
+              balance >= 0
+                  ? 'Tu balance es positivo'
+                  : 'Balance negativo este mes',
               style: Theme.of(context).textTheme.bodySmall,
             ),
             const SizedBox(height: 16),
@@ -303,6 +333,7 @@ class _AmountTile extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final currency = currencyFormatter();
+
     return Container(
       padding: const EdgeInsets.all(14),
       decoration: BoxDecoration(
@@ -347,15 +378,21 @@ class _TopCategoriesList extends StatelessWidget {
     if (categories.isEmpty) {
       return const Text('Aún no hay gastos en este mes.');
     }
+
     return Column(
       children: categories
           .map(
             (summary) => ListTile(
-              contentPadding:
-                  const EdgeInsets.symmetric(horizontal: 4, vertical: 6),
+              contentPadding: const EdgeInsets.symmetric(
+                horizontal: 4,
+                vertical: 6,
+              ),
               leading: CircleAvatar(
                 backgroundColor: summary.category.color.withOpacity(0.2),
-                child: Icon(summary.category.icon, color: summary.category.color),
+                child: Icon(
+                  summary.category.icon,
+                  color: summary.category.color,
+                ),
               ),
               title: Text(summary.category.label),
               trailing: Text(
@@ -433,7 +470,6 @@ class _SectionHeader extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return Row(
-      mainAxisAlignment: MainAxisAlignment.spaceBetween,
       children: [
         Expanded(
           child: Column(
@@ -449,6 +485,10 @@ class _SectionHeader extends StatelessWidget {
     );
   }
 }
+
+// ---------------------------
+// MOVIMIENTOS
+// ---------------------------
 
 class MovementsScreen extends StatefulWidget {
   const MovementsScreen({super.key});
@@ -504,9 +544,21 @@ class _MovementsScreenState extends State<MovementsScreen> {
           ],
         ),
         const SizedBox(height: 12),
-        _TypeFilter(
-          selected: _selectedTypeFilter,
-          onChanged: (value) => setState(() => _selectedTypeFilter = value),
+        SegmentedButton<MovementType>(
+          segments: const [
+            ButtonSegment(value: MovementType.expense, label: Text('Gasto')),
+            ButtonSegment(value: MovementType.income, label: Text('Ingreso')),
+          ],
+          multiSelectionEnabled: false,
+          emptySelectionAllowed: true,
+          selected: _selectedTypeFilter == null
+              ? <MovementType>{}
+              : {_selectedTypeFilter!},
+          onSelectionChanged: (selection) {
+            setState(() {
+              _selectedTypeFilter = selection.isEmpty ? null : selection.first;
+            });
+          },
         ),
         const SizedBox(height: 12),
         TextField(
@@ -521,84 +573,434 @@ class _MovementsScreenState extends State<MovementsScreen> {
         if (grouped.isEmpty)
           const Text('No hay movimientos con estos filtros.')
         else
-          ...grouped.entries.map(
-            (entry) {
-              final netTotal = store.totalNet(entry.value);
-              return Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  const SizedBox(height: 12),
-                  Row(
-                    mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                    children: [
-                      Text(
-                        DateFormat('EEEE d MMM', 'es_PE').format(entry.key),
-                        style: Theme.of(context).textTheme.titleSmall,
+          ...grouped.entries.map((entry) {
+            final total = store.totalFor(entry.value);
+            return Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                const SizedBox(height: 12),
+                Row(
+                  mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                  children: [
+                    Text(
+                      DateFormat('EEEE d MMM', 'es_PE').format(entry.key),
+                      style: Theme.of(context).textTheme.titleSmall,
+                    ),
+                    Text(
+                      currency.format(total),
+                      style: Theme.of(context).textTheme.titleSmall,
+                    ),
+                  ],
+                ),
+                const Divider(),
+                ...entry.value.map((movement) {
+                  return ListTile(
+                    contentPadding: EdgeInsets.zero,
+                    leading: CircleAvatar(
+                      backgroundColor: movement.category.color.withOpacity(
+                        0.15,
                       ),
-                      Text(
-                        currency.format(netTotal),
-                        style: Theme.of(context).textTheme.titleSmall,
-                      ),
-                    ],
-                  ),
-                  const Divider(),
-                  ...entry.value.map(
-                    (movement) => ListTile(
-                      contentPadding: EdgeInsets.zero,
-                      leading: CircleAvatar(
-                        backgroundColor: movement.category.color.withOpacity(0.15),
-                        child: Icon(
-                          movement.category.icon,
-                          color: movement.category.color,
-                        ),
-                      ),
-                      title: Text(movement.category.label),
-                      subtitle: Text(
-                        movement.note?.isNotEmpty == true
-                            ? movement.note!
-                            : movement.paymentMethod ?? 'Sin nota',
-                      ),
-                      trailing: Text(
-                        '${movement.type == MovementType.income ? '+' : '-'}${currency.format(movement.amount)}',
-                        style: Theme.of(context).textTheme.titleSmall?.copyWith(
-                              color: movement.type == MovementType.income
-                                  ? Theme.of(context).colorScheme.tertiary
-                                  : Theme.of(context).colorScheme.error,
-                            ),
+                      child: Icon(
+                        movement.category.icon,
+                        color: movement.category.color,
                       ),
                     ),
-                  ),
-                ],
-              );
-            },
-          ),
+                    title: Text(movement.category.label),
+                    subtitle: Text(
+                      movement.note?.isNotEmpty == true
+                          ? movement.note!
+                          : movement.paymentMethod ?? 'Sin nota',
+                    ),
+                    trailing: Text(
+                      '${movement.type == MovementType.income ? '+' : '-'}${currency.format(movement.amount)}',
+                      style: Theme.of(context).textTheme.titleSmall?.copyWith(
+                        color: movement.type == MovementType.income
+                            ? Theme.of(context).colorScheme.tertiary
+                            : Theme.of(context).colorScheme.error,
+                      ),
+                    ),
+                  );
+                }),
+              ],
+            );
+          }),
       ],
     );
   }
 }
 
-class _TypeFilter extends StatelessWidget {
-  const _TypeFilter({
-    required this.selected,
-    required this.onChanged,
-  });
+// ---------------------------
+// PRESUPUESTO
+// ---------------------------
 
-  final MovementType? selected;
-  final ValueChanged<MovementType?> onChanged;
+class BudgetScreen extends StatefulWidget {
+  const BudgetScreen({super.key});
+
+  @override
+  State<BudgetScreen> createState() => _BudgetScreenState();
+}
+
+class _BudgetScreenState extends State<BudgetScreen> {
+  DateTime _selectedMonth = DateTime(DateTime.now().year, DateTime.now().month);
+  String _searchQuery = '';
 
   @override
   Widget build(BuildContext context) {
-    return _SegmentedToggle<MovementType?>(
-      value: selected,
-      options: const [
-        SegOption(value: null, label: 'Todos'),
-        SegOption(value: MovementType.expense, label: 'Gasto'),
-        SegOption(value: MovementType.income, label: 'Ingreso'),
+    final store = ExpensesScope.of(context);
+    final months = store.availableMonths();
+    final categories = expenseCategories;
+    final currency = currencyFormatter();
+
+    final lowerQuery = _searchQuery.trim().toLowerCase();
+    final filteredCategories = lowerQuery.isEmpty
+        ? categories
+        : categories
+              .where((c) => c.label.toLowerCase().contains(lowerQuery))
+              .toList();
+
+    return ListView(
+      padding: const EdgeInsets.all(16),
+      children: [
+        Wrap(
+          spacing: 12,
+          runSpacing: 12,
+          children: [
+            _MonthFilter(
+              months: months,
+              selected: _selectedMonth,
+              onChanged: (value) => setState(() => _selectedMonth = value),
+            ),
+          ],
+        ),
+        const SizedBox(height: 12),
+        TextField(
+          decoration: const InputDecoration(
+            prefixIcon: Icon(Icons.search),
+            hintText: 'Buscar categoría',
+            border: OutlineInputBorder(),
+          ),
+          onChanged: (value) => setState(() => _searchQuery = value),
+        ),
+        const SizedBox(height: 16),
+        ...filteredCategories.map((category) {
+          final budget = store.budgetFor(_selectedMonth, category);
+          final spent = store.spentForCategoryInMonth(_selectedMonth, category);
+
+          final ratio = (budget == null || budget <= 0) ? 0.0 : spent / budget;
+          final progress = ratio.clamp(0.0, 1.0);
+          final percentage = (budget == null || budget <= 0)
+              ? 0
+              : (ratio * 100).round();
+
+          final status = budgetStatusFromRatio(ratio);
+
+          return Card(
+            elevation: 0,
+            child: ListTile(
+              onTap: () => _openBudgetSheet(context, category, budget),
+              contentPadding: const EdgeInsets.symmetric(
+                horizontal: 12,
+                vertical: 8,
+              ),
+              leading: CircleAvatar(
+                backgroundColor: category.color.withOpacity(0.2),
+                child: Icon(category.icon, color: category.color),
+              ),
+              title: Text(category.label),
+              subtitle: Padding(
+                padding: const EdgeInsets.only(top: 8),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      budget == null
+                          ? 'Sin presupuesto'
+                          : 'Presupuesto: ${currency.format(budget)}',
+                      style: Theme.of(context).textTheme.bodySmall,
+                    ),
+                    const SizedBox(height: 4),
+                    Text(
+                      'Gastado: ${currency.format(spent)}',
+                      style: Theme.of(context).textTheme.bodySmall,
+                    ),
+                    const SizedBox(height: 8),
+                    LinearProgressIndicator(
+                      value: (budget == null || budget <= 0) ? 0 : progress,
+                      minHeight: 6,
+                      backgroundColor: Theme.of(
+                        context,
+                      ).colorScheme.primaryContainer,
+                      color: status.colorOf(context),
+                    ),
+                    const SizedBox(height: 6),
+                    Row(
+                      mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                      children: [
+                        Text(
+                          '${percentage.clamp(0, 999)}%',
+                          style: Theme.of(context).textTheme.labelSmall,
+                        ),
+                        _StatusChip(status: status),
+                      ],
+                    ),
+                  ],
+                ),
+              ),
+            ),
+          );
+        }),
       ],
-      onChanged: onChanged,
+    );
+  }
+
+  Future<void> _openBudgetSheet(
+    BuildContext context,
+    MovementCategory category,
+    double? currentAmount,
+  ) async {
+    final controller = TextEditingController(
+      text: currentAmount == null ? '' : currentAmount.toStringAsFixed(2),
+    );
+
+    await showModalBottomSheet<void>(
+      context: context,
+      isScrollControlled: true,
+      showDragHandle: true,
+      builder: (_) {
+        final viewInsets = MediaQuery.of(context).viewInsets;
+        return Padding(
+          padding: EdgeInsets.only(
+            left: 16,
+            right: 16,
+            top: 8,
+            bottom: viewInsets.bottom + 24,
+          ),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Text(
+                'Presupuesto: ${category.label}',
+                style: Theme.of(context).textTheme.titleLarge,
+              ),
+              const SizedBox(height: 16),
+              TextField(
+                controller: controller,
+                keyboardType: const TextInputType.numberWithOptions(
+                  decimal: true,
+                ),
+                decoration: const InputDecoration(
+                  labelText: 'Monto mensual',
+                  prefixText: 'S/ ',
+                  border: OutlineInputBorder(),
+                ),
+              ),
+              const SizedBox(height: 20),
+              Row(
+                children: [
+                  Expanded(
+                    child: OutlinedButton(
+                      onPressed: () => Navigator.of(context).pop(),
+                      child: const Text('Cancelar'),
+                    ),
+                  ),
+                  const SizedBox(width: 12),
+                  if (currentAmount != null)
+                    Expanded(
+                      child: TextButton(
+                        onPressed: () {
+                          ExpensesScope.of(
+                            context,
+                          ).deleteBudget(_selectedMonth, category);
+                          Navigator.of(context).pop();
+                        },
+                        child: const Text('Quitar'),
+                      ),
+                    ),
+                  if (currentAmount != null) const SizedBox(width: 12),
+                  Expanded(
+                    child: FilledButton(
+                      onPressed: () =>
+                          _saveBudget(context, category, controller.text),
+                      child: const Text('Guardar'),
+                    ),
+                  ),
+                ],
+              ),
+            ],
+          ),
+        );
+      },
+    );
+
+    controller.dispose();
+  }
+
+  void _saveBudget(
+    BuildContext context,
+    MovementCategory category,
+    String input,
+  ) {
+    final store = ExpensesScope.of(context);
+    final raw = input.replaceAll(',', '.');
+    final amount = double.tryParse(raw);
+
+    if (amount == null || amount <= 0) {
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(const SnackBar(content: Text('Ingresa un monto válido.')));
+      return;
+    }
+
+    store.upsertBudget(_selectedMonth, category, amount);
+    Navigator.of(context).pop();
+  }
+}
+
+enum BudgetStatus { ok, near, exceeded }
+
+BudgetStatus budgetStatusFromRatio(double ratio) {
+  if (ratio > 1) return BudgetStatus.exceeded;
+  if (ratio >= 0.8) return BudgetStatus.near;
+  return BudgetStatus.ok;
+}
+
+extension BudgetStatusExtension on BudgetStatus {
+  String label() {
+    switch (this) {
+      case BudgetStatus.ok:
+        return 'OK';
+      case BudgetStatus.near:
+        return 'Cerca';
+      case BudgetStatus.exceeded:
+        return 'Excedido';
+    }
+  }
+
+  Color colorOf(BuildContext context) {
+    switch (this) {
+      case BudgetStatus.ok:
+        return Theme.of(context).colorScheme.tertiary;
+      case BudgetStatus.near:
+        return Theme.of(context).colorScheme.secondary;
+      case BudgetStatus.exceeded:
+        return Theme.of(context).colorScheme.error;
+    }
+  }
+}
+
+class _StatusChip extends StatelessWidget {
+  const _StatusChip({required this.status});
+
+  final BudgetStatus status;
+
+  @override
+  Widget build(BuildContext context) {
+    final color = status.colorOf(context);
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
+      decoration: BoxDecoration(
+        color: color.withOpacity(0.15),
+        borderRadius: BorderRadius.circular(999),
+      ),
+      child: Text(
+        status.label(),
+        style: Theme.of(context).textTheme.labelSmall?.copyWith(
+          color: color,
+          fontWeight: FontWeight.w600,
+        ),
+      ),
     );
   }
 }
+
+class _BudgetSummaryCard extends StatelessWidget {
+  const _BudgetSummaryCard({required this.summary});
+
+  final BudgetSummary summary;
+
+  @override
+  Widget build(BuildContext context) {
+    final currency = currencyFormatter();
+    final remaining = summary.totalBudget - summary.totalSpent;
+
+    return Card(
+      elevation: 0,
+      child: Padding(
+        padding: const EdgeInsets.all(16),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Text(
+              'Total planificado',
+              style: Theme.of(context).textTheme.labelLarge,
+            ),
+            const SizedBox(height: 6),
+            Text(
+              currency.format(summary.totalBudget),
+              style: Theme.of(context).textTheme.titleMedium,
+            ),
+            const SizedBox(height: 12),
+            Row(
+              children: [
+                Expanded(
+                  child: _BudgetMetric(
+                    label: 'Gastado',
+                    value: currency.format(summary.totalSpent),
+                    color: Theme.of(context).colorScheme.error,
+                  ),
+                ),
+                const SizedBox(width: 12),
+                Expanded(
+                  child: _BudgetMetric(
+                    label: 'Disponible',
+                    value: currency.format(remaining),
+                    color: Theme.of(context).colorScheme.tertiary,
+                  ),
+                ),
+              ],
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+class _BudgetMetric extends StatelessWidget {
+  const _BudgetMetric({
+    required this.label,
+    required this.value,
+    required this.color,
+  });
+
+  final String label;
+  final String value;
+  final Color color;
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      padding: const EdgeInsets.all(12),
+      decoration: BoxDecoration(
+        color: color.withOpacity(0.12),
+        borderRadius: BorderRadius.circular(14),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Text(label, style: Theme.of(context).textTheme.bodySmall),
+          const SizedBox(height: 4),
+          Text(value, style: Theme.of(context).textTheme.titleSmall),
+        ],
+      ),
+    );
+  }
+}
+
+// ---------------------------
+// FILTROS
+// ---------------------------
 
 class _MonthFilter extends StatelessWidget {
   const _MonthFilter({
@@ -654,21 +1056,20 @@ class _CategoryFilter extends StatelessWidget {
         border: OutlineInputBorder(),
       ),
       items: [
-        const DropdownMenuItem(
-          value: null,
-          child: Text('Todas'),
-        ),
+        const DropdownMenuItem(value: null, child: Text('Todas')),
         ...categories.map(
-          (category) => DropdownMenuItem(
-            value: category,
-            child: Text(category.label),
-          ),
+          (category) =>
+              DropdownMenuItem(value: category, child: Text(category.label)),
         ),
       ],
       onChanged: onChanged,
     );
   }
 }
+
+// ---------------------------
+// AGREGAR MOVIMIENTO
+// ---------------------------
 
 class AddMovementSheet extends StatefulWidget {
   const AddMovementSheet({super.key});
@@ -710,24 +1111,24 @@ class _AddMovementSheetState extends State<AddMovementSheet> {
       child: ListView(
         shrinkWrap: true,
         children: [
-          Text('Nuevo movimiento', style: Theme.of(context).textTheme.titleLarge),
+          Text(
+            'Nuevo movimiento',
+            style: Theme.of(context).textTheme.titleLarge,
+          ),
           const SizedBox(height: 16),
-
-          // Tipo (Gasto/Ingreso) - compatible (sin SegmentedButton)
-          _SegmentedToggle<MovementType>(
-            value: _selectedType,
-            options: const [
-              SegOption(value: MovementType.expense, label: 'Gasto'),
-              SegOption(value: MovementType.income, label: 'Ingreso'),
+          SegmentedButton<MovementType>(
+            segments: const [
+              ButtonSegment(value: MovementType.expense, label: Text('Gasto')),
+              ButtonSegment(value: MovementType.income, label: Text('Ingreso')),
             ],
-            onChanged: (value) {
+            selected: {_selectedType},
+            onSelectionChanged: (selection) {
               setState(() {
-                _selectedType = value;
+                _selectedType = selection.first;
                 _selectedCategory = null;
               });
             },
           ),
-
           const SizedBox(height: 16),
           TextField(
             controller: _amountController,
@@ -739,8 +1140,6 @@ class _AddMovementSheetState extends State<AddMovementSheet> {
             ),
           ),
           const SizedBox(height: 16),
-
-          // ✅ Sin "categorías recientes": solo TODAS las categorías del tipo seleccionado
           Text('Categorías', style: Theme.of(context).textTheme.labelLarge),
           const SizedBox(height: 8),
           Wrap(
@@ -752,17 +1151,19 @@ class _AddMovementSheetState extends State<AddMovementSheet> {
                     label: Text(category.label),
                     selected: _selectedCategory == category,
                     avatar: Icon(category.icon, size: 18),
-                    onSelected: (_) => setState(() => _selectedCategory = category),
+                    onSelected: (_) =>
+                        setState(() => _selectedCategory = category),
                   ),
                 )
                 .toList(),
           ),
-
           const SizedBox(height: 16),
           ListTile(
             contentPadding: EdgeInsets.zero,
             leading: const Icon(Icons.calendar_today),
-            title: Text(DateFormat('EEEE d MMMM', 'es_PE').format(_selectedDate)),
+            title: Text(
+              DateFormat('EEEE d MMMM', 'es_PE').format(_selectedDate),
+            ),
             trailing: TextButton(
               onPressed: () async {
                 final picked = await showDatePicker(
@@ -771,9 +1172,7 @@ class _AddMovementSheetState extends State<AddMovementSheet> {
                   firstDate: DateTime(DateTime.now().year - 1),
                   lastDate: DateTime(DateTime.now().year + 1),
                 );
-                if (picked != null) {
-                  setState(() => _selectedDate = picked);
-                }
+                if (picked != null) setState(() => _selectedDate = picked);
               },
               child: const Text('Cambiar'),
             ),
@@ -795,14 +1194,9 @@ class _AddMovementSheetState extends State<AddMovementSheet> {
             ),
           ),
           const SizedBox(height: 24),
-
-          // Botón guardar
-          SizedBox(
-            height: 48,
-            child: ElevatedButton(
-              onPressed: () => _saveMovement(context),
-              child: const Text('Guardar movimiento'),
-            ),
+          FilledButton(
+            onPressed: () => _saveMovement(context),
+            child: const Text('Guardar'),
           ),
         ],
       ),
@@ -815,9 +1209,9 @@ class _AddMovementSheetState extends State<AddMovementSheet> {
     final amount = double.tryParse(raw);
 
     if (amount == null || amount <= 0) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Ingresa un monto válido.')),
-      );
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(const SnackBar(content: Text('Ingresa un monto válido.')));
       return;
     }
 
@@ -836,9 +1230,12 @@ class _AddMovementSheetState extends State<AddMovementSheet> {
         category: _selectedCategory!,
         date: _selectedDate,
         createdAt: DateTime.now(),
-        note: _noteController.text.trim().isEmpty ? null : _noteController.text.trim(),
-        paymentMethod:
-            _paymentController.text.trim().isEmpty ? null : _paymentController.text.trim(),
+        note: _noteController.text.trim().isEmpty
+            ? null
+            : _noteController.text.trim(),
+        paymentMethod: _paymentController.text.trim().isEmpty
+            ? null
+            : _paymentController.text.trim(),
       ),
     );
 
@@ -846,9 +1243,9 @@ class _AddMovementSheetState extends State<AddMovementSheet> {
   }
 }
 
-/* -------------------------------------------------------------------------- */
-/*                                   MODELOS                                  */
-/* -------------------------------------------------------------------------- */
+// ---------------------------
+// MODELOS + STORE
+// ---------------------------
 
 enum MovementType { expense, income }
 
@@ -897,15 +1294,35 @@ class CategorySummary {
   final double total;
 }
 
-/* -------------------------------------------------------------------------- */
-/*                                    STORE                                   */
-/* -------------------------------------------------------------------------- */
+class Budget {
+  Budget({
+    required this.id,
+    required this.month,
+    required this.category,
+    required this.amount,
+    required this.createdAt,
+  });
+
+  final String id;
+  final DateTime month; // normalizado (YYYY-MM-01)
+  final MovementCategory category;
+  final double amount;
+  final DateTime createdAt;
+}
+
+class BudgetSummary {
+  const BudgetSummary({required this.totalBudget, required this.totalSpent});
+
+  final double totalBudget;
+  final double totalSpent;
+}
 
 class ExpensesStore extends ChangeNotifier {
-  ExpensesStore(this._movements);
+  ExpensesStore(this._movements, this._budgets);
 
   factory ExpensesStore.demo() {
     final now = DateTime.now();
+
     final demo = <Movement>[
       Movement(
         id: '1',
@@ -1045,21 +1462,46 @@ class ExpensesStore extends ChangeNotifier {
         note: 'Regalo familiar',
       ),
     ];
-    return ExpensesStore(demo);
+
+    final budgets = <Budget>[
+      Budget(
+        id: 'b1',
+        month: normalizeMonth(now),
+        category: expenseCategories[0],
+        amount: 600,
+        createdAt: now.subtract(const Duration(days: 20)),
+      ),
+      Budget(
+        id: 'b2',
+        month: normalizeMonth(now),
+        category: expenseCategories[1],
+        amount: 450,
+        createdAt: now.subtract(const Duration(days: 18)),
+      ),
+      Budget(
+        id: 'b3',
+        month: normalizeMonth(now),
+        category: expenseCategories[2],
+        amount: 220,
+        createdAt: now.subtract(const Duration(days: 16)),
+      ),
+    ];
+
+    return ExpensesStore(demo, budgets);
   }
 
   final List<Movement> _movements;
+  final List<Budget> _budgets;
 
   List<Movement> get movements => List.unmodifiable(_movements);
+  List<Budget> get budgets => List.unmodifiable(_budgets);
 
   List<MovementCategory> categoriesForType(MovementType type) {
     return type == MovementType.expense ? expenseCategories : incomeCategories;
   }
 
   List<MovementCategory> categoriesForFilter(MovementType? type) {
-    if (type == null) {
-      return [...expenseCategories, ...incomeCategories];
-    }
+    if (type == null) return [...expenseCategories, ...incomeCategories];
     return categoriesForType(type);
   }
 
@@ -1069,46 +1511,46 @@ class ExpensesStore extends ChangeNotifier {
   }
 
   List<Movement> movementsForMonth(DateTime month) {
-    return _movements.where((movement) {
-      return movement.date.year == month.year && movement.date.month == month.month;
-    }).toList();
+    return _movements
+        .where((m) => m.date.year == month.year && m.date.month == month.month)
+        .toList();
+  }
+
+  double totalFor(List<Movement> movements) {
+    return movements.fold(0, (sum, item) {
+      return item.type == MovementType.income
+          ? sum + item.amount
+          : sum - item.amount;
+    });
   }
 
   double totalForType(List<Movement> movements, MovementType type) {
     return movements
-        .where((movement) => movement.type == type)
-        .fold(0.0, (sum, item) => sum + item.amount);
+        .where((m) => m.type == type)
+        .fold(0, (sum, item) => sum + item.amount);
   }
 
-  // Neto (ingresos - gastos)
-  double totalNet(List<Movement> movements) {
-    return movements.fold<double>(0, (sum, item) {
-      return item.type == MovementType.income ? sum + item.amount : sum - item.amount;
-    });
-  }
-
-  List<CategorySummary> topCategories(Iterable<Movement> movements, {int count = 3}) {
+  List<CategorySummary> topCategories(
+    Iterable<Movement> movements, {
+    int count = 3,
+  }) {
     final totals = <MovementCategory, double>{};
-    for (final movement in movements) {
-      totals.update(
-        movement.category,
-        (value) => value + movement.amount,
-        ifAbsent: () => movement.amount,
-      );
+
+    for (final m in movements) {
+      totals.update(m.category, (v) => v + m.amount, ifAbsent: () => m.amount);
     }
 
-    final summaries = totals.entries
-        .map((e) => CategorySummary(e.key, e.value))
-        .toList()
-      ..sort((a, b) => b.total.compareTo(a.total));
+    final summaries =
+        totals.entries.map((e) => CategorySummary(e.key, e.value)).toList()
+          ..sort((a, b) => b.total.compareTo(a.total));
 
     return summaries.take(count).toList();
   }
 
   List<DateTime> availableMonths() {
     final months = <DateTime>{};
-    for (final movement in _movements) {
-      months.add(DateTime(movement.date.year, movement.date.month));
+    for (final m in _movements) {
+      months.add(DateTime(m.date.year, m.date.month));
     }
     months.add(DateTime(DateTime.now().year, DateTime.now().month));
     final list = months.toList()..sort((a, b) => b.compareTo(a));
@@ -1122,32 +1564,108 @@ class ExpensesStore extends ChangeNotifier {
     String query = '',
   }) {
     final lower = query.trim().toLowerCase();
-    return _movements.where((movement) {
+    return _movements.where((m) {
       final matchesMonth =
-          movement.date.year == month.year && movement.date.month == month.month;
-      final matchesCategory = category == null || movement.category == category;
-      final matchesType = type == null || movement.type == type;
-      final matchesQuery = lower.isEmpty ||
-          movement.category.label.toLowerCase().contains(lower) ||
-          (movement.note?.toLowerCase().contains(lower) ?? false);
+          m.date.year == month.year && m.date.month == month.month;
+      final matchesCategory = category == null || m.category == category;
+      final matchesType = type == null || m.type == type;
+      final matchesQuery =
+          lower.isEmpty ||
+          m.category.label.toLowerCase().contains(lower) ||
+          (m.note?.toLowerCase().contains(lower) ?? false);
       return matchesMonth && matchesCategory && matchesType && matchesQuery;
     }).toList();
   }
 
   Map<DateTime, List<Movement>> groupByDay(List<Movement> movements) {
     final map = <DateTime, List<Movement>>{};
-    for (final movement in movements) {
-      final day = DateTime(movement.date.year, movement.date.month, movement.date.day);
-      map.putIfAbsent(day, () => []).add(movement);
+    for (final m in movements) {
+      final day = DateTime(m.date.year, m.date.month, m.date.day);
+      map.putIfAbsent(day, () => []).add(m);
     }
-    final entries = map.entries.toList()..sort((a, b) => b.key.compareTo(a.key));
+    final entries = map.entries.toList()
+      ..sort((a, b) => b.key.compareTo(a.key));
     return Map.fromEntries(entries);
   }
-}
 
-/* -------------------------------------------------------------------------- */
-/*                                     SCOPE                                  */
-/* -------------------------------------------------------------------------- */
+  // ---- Presupuestos ----
+
+  List<Budget> budgetsForMonth(DateTime month) {
+    final normalized = normalizeMonth(month);
+    return _budgets.where((b) => b.month == normalized).toList();
+  }
+
+  double? budgetFor(DateTime month, MovementCategory category) {
+    final normalized = normalizeMonth(month);
+    for (final b in _budgets) {
+      if (b.month == normalized && b.category.id == category.id) {
+        return b.amount;
+      }
+    }
+    return null;
+  }
+
+  void upsertBudget(DateTime month, MovementCategory category, double amount) {
+    final normalized = normalizeMonth(month);
+    final index = _budgets.indexWhere(
+      (b) => b.month == normalized && b.category.id == category.id,
+    );
+
+    if (index == -1) {
+      _budgets.add(
+        Budget(
+          id: DateTime.now().millisecondsSinceEpoch.toString(),
+          month: normalized,
+          category: category,
+          amount: amount,
+          createdAt: DateTime.now(),
+        ),
+      );
+    } else {
+      final existing = _budgets[index];
+      _budgets[index] = Budget(
+        id: existing.id,
+        month: existing.month,
+        category: existing.category,
+        amount: amount,
+        createdAt: existing.createdAt,
+      );
+    }
+
+    notifyListeners();
+  }
+
+  void deleteBudget(DateTime month, MovementCategory category) {
+    final normalized = normalizeMonth(month);
+    _budgets.removeWhere(
+      (b) => b.month == normalized && b.category.id == category.id,
+    );
+    notifyListeners();
+  }
+
+  double spentForCategoryInMonth(DateTime month, MovementCategory category) {
+    return _movements
+        .where(
+          (m) =>
+              m.type == MovementType.expense &&
+              m.date.year == month.year &&
+              m.date.month == month.month &&
+              m.category.id == category.id,
+        )
+        .fold(0.0, (sum, item) => sum + item.amount);
+  }
+
+  BudgetSummary budgetSummaryForMonth(DateTime month) {
+    final totalBudget = budgetsForMonth(
+      month,
+    ).fold(0.0, (sum, b) => sum + b.amount);
+    final totalSpent = totalForType(
+      movementsForMonth(month),
+      MovementType.expense,
+    );
+    return BudgetSummary(totalBudget: totalBudget, totalSpent: totalSpent);
+  }
+}
 
 class ExpensesScope extends InheritedNotifier<ExpensesStore> {
   const ExpensesScope({
@@ -1162,10 +1680,6 @@ class ExpensesScope extends InheritedNotifier<ExpensesStore> {
     return scope!.notifier!;
   }
 }
-
-/* -------------------------------------------------------------------------- */
-/*                                  CATEGORÍAS                                */
-/* -------------------------------------------------------------------------- */
 
 final expenseCategories = <MovementCategory>[
   MovementCategory(
@@ -1257,17 +1771,13 @@ final incomeCategories = <MovementCategory>[
   ),
 ];
 
-/* -------------------------------------------------------------------------- */
-/*                                   HELPERS                                  */
-/* -------------------------------------------------------------------------- */
-
 NumberFormat currencyFormatter() {
   return NumberFormat.simpleCurrency(locale: 'es_PE', name: 'PEN');
 }
 
-/* -------------------------------------------------------------------------- */
-/*                                    THEME                                   */
-/* -------------------------------------------------------------------------- */
+DateTime normalizeMonth(DateTime month) {
+  return DateTime(month.year, month.month);
+}
 
 ThemeData buildAppTheme() {
   const seedColor = Color(0xFF7D6CF2);
@@ -1307,14 +1817,12 @@ ThemeData buildAppTheme() {
         color: Color(0xFF1F1D2B),
       ),
     ),
-    cardTheme: CardTheme(
+    cardTheme: CardThemeData(
       color: surface,
       elevation: 0,
       shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
     ),
-    listTileTheme: const ListTileThemeData(
-      iconColor: Color(0xFF6D6A7C),
-    ),
+    listTileTheme: const ListTileThemeData(iconColor: Color(0xFF6D6A7C)),
     chipTheme: ChipThemeData(
       backgroundColor: container,
       selectedColor: seedColor.withOpacity(0.15),
@@ -1344,11 +1852,6 @@ ThemeData buildAppTheme() {
         fontWeight: FontWeight.w700,
         color: Color(0xFF1F1D2B),
       ),
-      titleLarge: TextStyle(
-        fontSize: 22,
-        fontWeight: FontWeight.w700,
-        color: Color(0xFF1F1D2B),
-      ),
       titleMedium: TextStyle(
         fontSize: 18,
         fontWeight: FontWeight.w600,
@@ -1359,14 +1862,8 @@ ThemeData buildAppTheme() {
         fontWeight: FontWeight.w600,
         color: Color(0xFF1F1D2B),
       ),
-      bodyMedium: TextStyle(
-        fontSize: 14,
-        color: Color(0xFF5D5A6F),
-      ),
-      bodySmall: TextStyle(
-        fontSize: 12,
-        color: Color(0xFF8C889B),
-      ),
+      bodyMedium: TextStyle(fontSize: 14, color: Color(0xFF5D5A6F)),
+      bodySmall: TextStyle(fontSize: 12, color: Color(0xFF8C889B)),
       labelLarge: TextStyle(
         fontSize: 12,
         fontWeight: FontWeight.w600,
@@ -1379,65 +1876,4 @@ ThemeData buildAppTheme() {
       ),
     ),
   );
-}
-
-/* -------------------------------------------------------------------------- */
-/*                       SIMPLE SEGMENTED CONTROL (SAFE)                       */
-/* -------------------------------------------------------------------------- */
-
-class SegOption<T> {
-  const SegOption({required this.value, required this.label});
-  final T value;
-  final String label;
-}
-
-class _SegmentedToggle<T> extends StatelessWidget {
-  const _SegmentedToggle({
-    required this.value,
-    required this.options,
-    required this.onChanged,
-  });
-
-  final T value;
-  final List<SegOption<T>> options;
-  final ValueChanged<T> onChanged;
-
-  @override
-  Widget build(BuildContext context) {
-    final cs = Theme.of(context).colorScheme;
-
-    return Container(
-      decoration: BoxDecoration(
-        color: cs.primaryContainer.withOpacity(0.35),
-        borderRadius: BorderRadius.circular(16),
-      ),
-      child: Row(
-        children: options.map((o) {
-          final selected = o.value == value;
-          return Expanded(
-            child: InkWell(
-              borderRadius: BorderRadius.circular(16),
-              onTap: () => onChanged(o.value),
-              child: AnimatedContainer(
-                duration: const Duration(milliseconds: 180),
-                padding: const EdgeInsets.symmetric(vertical: 10),
-                decoration: BoxDecoration(
-                  color: selected ? cs.primary : Colors.transparent,
-                  borderRadius: BorderRadius.circular(16),
-                ),
-                child: Center(
-                  child: Text(
-                    o.label,
-                    style: Theme.of(context).textTheme.labelLarge?.copyWith(
-                          color: selected ? Colors.white : const Color(0xFF1F1D2B),
-                        ),
-                  ),
-                ),
-              ),
-            ),
-          );
-        }).toList(),
-      ),
-    );
-  }
 }
